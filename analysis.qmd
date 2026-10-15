@@ -6,7 +6,7 @@ format:
     toc-expand: true
     toc-depth: 4
     toc-location: left
-    number-sections: true
+    number-sections: False
     self-contained: true
     code-fold: false
 editor_options: 
@@ -17,134 +17,904 @@ execute:
   echo: true
 ---
 
-# Project Setup
+# Cargar paquetes
 
 ```{r}
-#| label: setup
 
-source('https://inkaverse.com/setup.r')
 library(readxl)
+library(dplyr)
+library(ggplot2)
+library(readxl)
+library(patchwork)
+
 
 ```
 
-# Data import
+
+# I. Dencidad de esporas
+
+# 1. importar datos
 
 ```{r}
-gs <- "url" %>% 
-  as_sheets_id()
 
-fb <- gs %>% 
-  range_read(ss = .,sheet = "fb")
-
-
-# importar toda la data
-
-base_de_datos_ordenada_para_procesar <- read_excel("data/base de datos ordenada para procesar.xlsx", 
-    sheet = "fb")
-View(base_de_datos_ordenada_para_procesar)
-
-
-library(readxl)
-base_datos_tincion <- read_excel("data/base_datos_tincion.xlsx", 
-    sheet = "fb")
-View(base_datos_tincion)
-
-library(readxl)
-densidad_de_esporas_procesar <- read_excel("data/densidad de esporas procesar.xlsx", 
+datos <- read_excel("data/densidad de esporas procesar.xlsx", 
     sheet = "Total_por_accesion")
-View(densidad_de_esporas_procesar)
+View(datos)
 
 
+datos <- datos %>%
+  mutate(
+    Densidad_esporas_g = `Total de esporas` / 6
+  )
+
+View(datos)
 
 ```
 
-# Research Objectives
-
-> https://docs.google.com/spreadsheets/d/1u6xgTT8jDFkHSMkK1iRrNVR-1iOINQidbEiaDCu2Nqw/edit?gid=504037395#gid=504037395
-
-## RO 1
+# # 2. ESTADÍSTICA DESCRIPTIVA
 
 ```{r}
 
+
+# Descriptivos generales
+descriptivos_general <- datos %>%
+  summarise(
+    n = sum(!is.na(Densidad_esporas_g)),
+    Media = mean(Densidad_esporas_g, na.rm = TRUE),
+    DE = sd(Densidad_esporas_g, na.rm = TRUE),
+    Mediana = median(Densidad_esporas_g, na.rm = TRUE),
+    Minimo = min(Densidad_esporas_g, na.rm = TRUE),
+    Maximo = max(Densidad_esporas_g, na.rm = TRUE)
+  )
+
+descriptivos_general
+
+
+# Descriptivos por grupo
+descriptivos_grupo <- datos %>%
+  group_by(Grupo) %>%
+  summarise(
+    n = sum(!is.na(Densidad_esporas_g)),
+    Media = mean(Densidad_esporas_g, na.rm = TRUE),
+    DE = sd(Densidad_esporas_g, na.rm = TRUE),
+    Mediana = median(Densidad_esporas_g, na.rm = TRUE),
+    Minimo = min(Densidad_esporas_g, na.rm = TRUE),
+    Maximo = max(Densidad_esporas_g, na.rm = TRUE)
+  )
+
+descriptivos_grupo
+
 ```
 
-## RO 2
+# 5. PRUEBA DE NORMALIDAD
 
 ```{r}
 
+# Grupo CA
+shapiro_CA <- shapiro.test(
+  datos$Densidad_esporas_g[datos$Grupo == "CA"]
+)
+
+shapiro_CA
+
+
+# Grupo CT
+shapiro_CT <- shapiro.test(
+  datos$Densidad_esporas_g[datos$Grupo == "CT"]
+)
+
+shapiro_CT
+
 ```
 
-# Multivariate
+
+# 6. COMPARACIÓN ENTRE CA Y CT
+# 6.1. Prueba de Mann-Whitney
 
 ```{r}
-#| eval: false
 
-library(FactoMineR)
-library(factoextra)
+mann_whitney <- wilcox.test(
+  Densidad_esporas_g ~ Grupo,
+  data = datos,
+  exact = FALSE
+)
 
-dtx <- fb %>% 
-  dplyr::select(!c("var1", "var2")) %>% 
-  as.data.frame()
-# str(dtx)
-  
-mv <- dtx %>% 
-  PCA(scale.unit = T
-      , graph = F
-      , quali.sup = c(1, 2))
+mann_whitney
 
-var <- mv %>% 
-  plot.PCA(choix = c("var"), cex=0.7)
 
-cos <- mv %>% 
-  fviz_pca_var(col.var = "cos2"
-               , gradient.cols = inti:::paleta()
-               , repel = TRUE
-               , labelsize = 2)
-
-ind <- mv %>% 
-  plot.PCA(choix = c("ind")
-           , cex = 0.7
-           , label = "ind"
-           , invisible = "quali"
-           , col.hab = inti:::paleta()
-           , habillage = "none"
-           )
-
-pcainfo <- factoextra::get_pca(mv); pcainfo
-
-pcainfo$cor %>% kable(caption = "Variable correlations")
-pcainfo$contrib %>% kable(caption = "Variable Contribution")
-pcainfo$cos2 %>% kable(caption = "Variable Cos2")
-
-cls <- mv %>% HCPC(nb.clust = -1, graph = FALSE)
-
-map <- \() {plot.HCPC(cls, choice = "map", draw.tree = FALSE)}
-
-cls$data.clust # Cluster membership of each individual
-cls$desc.var$quanti # Quantitative variables characterizing each cluster
-cls$desc.var$category # Categorical variables significantly by cluster 
-table(cls$data.clust$clust) # Number of individuals assigned to each cluster
-
-plot <- list(var, cos, ind, map) %>% 
-  plot_grid(plotlist = ., ncol = 2, labels = "auto") %>% 
-  ggsave(plot = ., "manuscript/multivariate.jpg", units = "cm"
-                , width = 30, height = 30)
-
-plot %>% include_graphics()
 ```
 
-# References
+# 7. BOXPLOT CA vs CT
 
-Broman, K. W., & Woo, K. H. (2017). Data organization in spreadsheets. The American Statistician, 72(1), 2–10. https://doi.org/10.1080/00031305.2017.1375989
+```{r}
 
-Zuur, A. F., Ieno, E. N., & Elphick, C. S. (2009). A protocol for data exploration to avoid common statistical problems. Methods in Ecology and Evolution, 1(1), 3–14. https://doi.org/10.1111/j.2041-210x.2009.00001.x
+p_valor <- mann_whitney$p.value
 
-Francoishusson. (2017, July 13). PCA course using FactoMineR | R-bloggers. R-bloggers. https://www.r-bloggers.com/2017/07/pca-course-using-factominer/
+fig_boxplot <- ggplot(
+  datos,
+  aes(
+    x = Grupo,
+    y = Densidad_esporas_g,
+    fill = Grupo
+  )
+) +
+  geom_boxplot(
+    width = 0.55,
+    outlier.shape = NA,
+    alpha = 0.7
+  ) +
+  geom_jitter(
+    width = 0.10,
+    size = 2
+  ) +
+  annotate(
+    "text",
+    x = 1.5,
+    y = max(datos$Densidad_esporas_g, na.rm = TRUE) * 1.08,
+    label = paste0(
+      "Mann-Whitney: p = ",
+      format.pval(p_valor, digits = 3)
+    ),
+    size = 4
+  ) +
+  expand_limits(
+    y = max(datos$Densidad_esporas_g, na.rm = TRUE) * 1.15
+  ) +
+  labs(
+    x = "Grupo",
+    y = expression(
+      "Densidad de esporas (g"^{-1}*" de suelo)"
+    )
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11)
+  )
 
-Kozak, M., & Piepho, H. (2017). What’s normal anyway? Residual plots are more telling than significance tests when checking ANOVA assumptions. Journal of Agronomy and Crop Science, 204(1), 86–98. https://doi.org/10.1111/jac.12220
+fig_boxplot
 
-Tanaka, E., & Hui, F. K. C. (2019). Symbolic formulae for linear mixed models. In Communications in computer and information science (pp. 3–21). https://doi.org/10.1007/978-981-15-1960-4_1
 
-Schielzeth, H., Dingemanse, N. J., Nakagawa, S., Westneat, D. F., Allegue, H., Teplitsky, C., Réale, D., Dochtermann, N. A., Garamszegi, L. Z., & Araya‐Ajoy, Y. G. (2020). Robustness of linear mixed‐effects models to violations of distributional assumptions. Methods in Ecology and Evolution, 11(9), 1141–1152. https://doi.org/10.1111/2041-210x.13434
 
-Jambor, H. K. (2025). A checklist for designing and improving the visualization of scientific data. Nature Cell Biology, 27(6), 879–883. https://doi.org/10.1038/s41556-025-01684-z
+# Exportar
+
+ggsave(
+  filename = "manuscript/Figuras_Densidad_HMA/Figura_1_Boxplot_CA_vs_CT.tiff",
+  plot = fig_boxplot,
+  width = 16,
+  height = 14,
+  units = "cm",
+  dpi = 600,
+  compression = "lzw"
+)
+
+# ggsave(
+#   filename = "manuscript/Figuras_Densidad_HMA/Figura_1_Boxplot_CA_vs_CT.pdf",
+#   plot = fig_boxplot,
+#   width = 16,
+#   height = 14,
+#   units = "cm",
+#   device = cairo_pdf
+# )
+
+```
+
+
+# 8. DENSIDAD DE ESPORAS POR ACCESIÓN - CA
+
+```{r}
+
+fig_CA <- ggplot(
+  filter(datos, Grupo == "CA"),
+  aes(
+    x = reorder(Accesión, Densidad_esporas_g),
+    y = Densidad_esporas_g
+  )
+) +
+  geom_col(
+    width = 0.75,
+    fill = "#1F78B4",
+    color = "black",
+    linewidth = 0.3
+  ) +
+  labs(
+    x = "Accesión",
+    y = expression(
+      "Densidad de esporas (g"^{-1}*" de suelo)"
+    ),
+    title = "Densidad de esporas en accesiones CA"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(
+      angle = 90,
+      hjust = 1
+    ),
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold"
+    ),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+fig_CA
+
+
+# Exportar
+
+# ggsave(
+#   filename = "manuscript/Figuras_Densidad_HMA/Figura_2_Densidad_CA.tiff",
+#   plot = fig_CA,
+#   width = 22,
+#   height = 15,
+#   units = "cm",
+#   dpi = 600,
+#   compression = "lzw"
+# )
+
+# ggsave(
+#   filename = "manuscript/Figuras_Densidad_HMA/Figura_2_Densidad_CA.pdf",
+#   plot = fig_CA,
+#   width = 22,
+#   height = 15,
+#   units = "cm",
+#   device = cairo_pdf
+# )
+
+```
+
+# 9. DENSIDAD DE ESPORAS POR ACCESIÓN - CT
+
+```{r}
+
+fig_CT <- ggplot(
+  filter(datos, Grupo == "CT"),
+  aes(
+    x = reorder(Accesión, Densidad_esporas_g),
+    y = Densidad_esporas_g
+  )
+) +
+  geom_col(
+    width = 0.75,
+    fill = "#E66101",
+    color = "black",
+    linewidth = 0.3
+  ) +
+  labs(
+    x = "Accesión",
+    y = expression(
+      "Densidad de esporas (g"^{-1}*" de suelo)"
+    ),
+    title = "Densidad de esporas en accesiones CT"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(
+      angle = 90,
+      hjust = 1
+    ),
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold"
+    ),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+fig_CT
+
+# exportar
+
+# ggsave(
+#   filename = "manuscript/Figuras_Densidad_HMA/Figura_3_Densidad_CT.tiff",
+#   plot = fig_CT,
+#   width = 22,
+#   height = 15,
+#   units = "cm",
+#   dpi = 600,
+#   compression = "lzw"
+# )
+
+# ggsave(
+#   filename = "manuscript/Figuras_Densidad_HMA/Figura_3_Densidad_CT.pdf",
+#   plot = fig_CT,
+#   width = 22,
+#   height = 15,
+#   units = "cm",
+#   device = cairo_pdf
+# )
+
+```
+
+# 10. FIGURA COMBINADA: DENSIDAD DE ESPORAS CA Y CT
+
+```{r}
+
+# Establecer la misma escala del eje Y para ambas figuras
+limite_y <- max(datos$Densidad_esporas_g, na.rm = TRUE) * 1.05
+
+fig_CA_final <- fig_CA +
+  coord_cartesian(ylim = c(0, limite_y))
+
+fig_CT_final <- fig_CT +
+  coord_cartesian(ylim = c(0, limite_y))
+
+
+# Combinar figuras verticalmente
+fig_combinada <- (
+  fig_CA_final /
+  fig_CT_final
+) +
+  plot_annotation(
+    tag_levels = "a",
+    tag_prefix = "(",
+    tag_suffix = ")"
+  ) &
+  theme(
+    plot.tag = element_text(
+      face = "bold",
+      size = 14
+    ),
+    plot.tag.position = c(0.01, 0.99)
+  )
+
+# Visualizar
+fig_combinada
+
+
+# Exportar figura combinada
+ggsave(
+  filename = "manuscript/Figuras_Densidad_HMA/Figura_2_Densidad_CA_CT.tiff",
+  plot = fig_combinada,
+  width = 22,
+  height = 28,
+  units = "cm",
+  dpi = 600,
+  compression = "lzw",
+  bg = "white"
+)
+
+```
+
+
+
+
+
+# II. COLONIZACIÓN MICORRÍZICA
+
+# 1. Cargar data
+
+```{r}
+
+library(readxl)
+colonizacion <- read_excel("data/base_datos_tincion.xlsx", 
+    sheet = "fb")
+View(colonizacion)
+
+```
+
+```{r}
+
+
+# ============================================================
+# 3. PREPARAR LOS DATOS DE COLONIZACIÓN
+# ============================================================
+
+colonizacion <- colonizacion %>%
+  mutate(
+    Accesión = gsub("_", "", muestra),
+    Grupo = substr(Accesión, 1, 2)
+  )
+
+
+# ============================================================
+# 4. PROMEDIO DE R1, R2 Y R3 POR ACCESIÓN
+# ============================================================
+
+colonizacion_promedio <- colonizacion %>%
+  group_by(Accesión, Grupo) %>%
+  summarise(
+    Colonizacion = mean(porcentaje, na.rm =TRUE),
+    .groups = "drop"
+  )
+
+
+# ============================================================
+# 5. CONSERVAR SOLO LAS 35 ACCESIONES USADAS EN DENSIDAD
+# ============================================================
+
+colonizacion_analisis <- colonizacion_promedio %>%
+  semi_join(
+    datos %>% select(Accesión),
+    by = "Accesión"
+  ) %>%
+  arrange(Grupo, Accesión)
+
+View(colonizacion_analisis)
+
+
+# Accesiones de densidad que no aparecen en colonización
+anti_join(
+  datos %>% distinct(Accesión),
+  colonizacion_promedio %>% distinct(Accesión),
+  by = "Accesión"
+)
+
+# Número de accesiones por grupo
+colonizacion_analisis %>%
+  count(Grupo)
+
+# Verificar accesiones únicas
+n_distinct(colonizacion_analisis$Accesión)
+
+# ============================================================
+# 6. ESTADÍSTICA DESCRIPTIVA GENERAL
+# ============================================================
+
+descriptivos_general <- colonizacion_analisis %>%
+  summarise(
+    n = n(),
+    Media = mean(Colonizacion),
+    DE = sd(Colonizacion),
+    Mediana = median(Colonizacion),
+    Minimo = min(Colonizacion),
+    Maximo = max(Colonizacion)
+  )
+
+descriptivos_general
+
+
+# ============================================================
+# 7. ESTADÍSTICA DESCRIPTIVA POR GRUPO
+# ============================================================
+
+descriptivos_grupo <- colonizacion_analisis %>%
+  group_by(Grupo) %>%
+  summarise(
+    n = n(),
+    Media = mean(Colonizacion),
+    DE = sd(Colonizacion),
+    Mediana = median(Colonizacion),
+    Minimo = min(Colonizacion),
+    Maximo = max(Colonizacion)
+  )
+
+descriptivos_grupo
+
+
+# ============================================================
+# 8. NORMALIDAD: SHAPIRO-WILK
+# ============================================================
+
+shapiro_CA <- shapiro.test(
+  colonizacion_analisis$Colonizacion[
+    colonizacion_analisis$Grupo == "CA"
+  ]
+)
+
+shapiro_CT <- shapiro.test(
+  colonizacion_analisis$Colonizacion[
+    colonizacion_analisis$Grupo == "CT"
+  ]
+)
+
+shapiro_CA
+shapiro_CT
+
+
+# ============================================================
+# 9. COMPARACIÓN CA vs CT
+# t DE WELCH
+# ============================================================
+
+comparacion <- t.test(
+  Colonizacion ~ Grupo,
+  data = colonizacion_analisis,
+  var.equal = FALSE
+)
+
+comparacion
+
+
+# ============================================================
+# 10. COLORES
+# ============================================================
+
+colores_grupo <- c(
+  "CA" = "#1F78B4",
+  "CT" = "#E66101"
+)
+
+
+# ============================================================
+# ============================================================
+# 11. BOXPLOT CA vs CT
+# ============================================================
+
+p_valor <- comparacion$p.value
+
+fig_boxplot_col <- ggplot(
+  colonizacion_analisis,
+  aes(
+    x = Grupo,
+    y = Colonizacion,
+    fill = Grupo
+  )
+) +
+  geom_boxplot(
+    width = 0.55,
+    alpha = 0.85,
+    color = "black",
+    linewidth = 0.6,
+    outlier.shape = NA
+  ) +
+  geom_jitter(
+    aes(color = Grupo),
+    width = 0.10,
+    size = 2.4,
+    alpha = 0.9,
+    show.legend = FALSE
+  ) +
+  annotate(
+    "text",
+    x = 1.5,
+    y = 85,
+    label = paste0(
+      "t de Welch: p = ",
+      format.pval(p_valor, digits = 3)
+    ),
+    size = 4
+  ) +
+  scale_fill_manual(values = colores_grupo) +
+  scale_color_manual(values = colores_grupo) +
+  scale_y_continuous(
+    limits = c(0, 100),
+    breaks = seq(0, 100, 20)
+  ) +
+  labs(
+    x = "Grupo",
+    y = "Colonización micorrízica (%)"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 11)
+  )
+
+fig_boxplot_col
+
+# ============================================================
+# ============================================================
+# 12. COLONIZACIÓN POR ACCESIÓN - CA
+# ============================================================
+
+fig_CA_col <- ggplot(
+  filter(colonizacion_analisis, Grupo == "CA"),
+  aes(
+    x = reorder(Accesión, Colonizacion),
+    y = Colonizacion
+  )
+) +
+  geom_col(
+    width = 0.75,
+    fill = "#1F78B4",
+    color = "black",
+    linewidth = 0.3
+  ) +
+  scale_y_continuous(
+    limits = c(0, 100),
+    breaks = seq(0, 100, 20)
+  ) +
+  labs(
+    x = "Accesión",
+    y = "Colonización micorrízica (%)",
+    title = "Colonización micorrízica en accesiones CA"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(
+      angle = 90,
+      hjust = 1
+    ),
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold"
+    ),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+fig_CA_col
+
+# ============================================================
+# ============================================================
+# 13. COLONIZACIÓN POR ACCESIÓN - CT
+# ============================================================
+
+fig_CT_col <- ggplot(
+  filter(colonizacion_analisis, Grupo == "CT"),
+  aes(
+    x = reorder(Accesión, Colonizacion),
+    y = Colonizacion
+  )
+) +
+  geom_col(
+    width = 0.75,
+    fill = "#E66101",
+    color = "black",
+    linewidth = 0.3
+  ) +
+  scale_y_continuous(
+    limits = c(0, 100),
+    breaks = seq(0, 100, 20)
+  ) +
+  labs(
+    x = "Accesión",
+    y = "Colonización micorrízica (%)",
+    title = "Colonización micorrízica en accesiones CT"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(
+      angle = 90,
+      hjust = 1
+    ),
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold"
+    ),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+fig_CT_col
+
+# ============================================================
+# 14. EXPORTAR FIGURAS EN ALTA CALIDAD
+# ============================================================
+
+# Crear carpeta de salida
+dir.create(
+  "Figuras_Colonizacion_HMA",
+  showWarnings = FALSE
+)
+
+# ------------------------------------------------------------
+# FIGURA 1. BOXPLOT CA vs CT
+# ------------------------------------------------------------
+
+ggsave(
+  filename = "Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.tiff",
+  plot = fig_boxplot_col,
+  width = 16,
+  height = 14,
+  units = "cm",
+  dpi = 600,
+  compression = "lzw",
+  bg = "white"
+)
+
+ggsave(
+  filename = "Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.pdf",
+  plot = fig_boxplot_col,
+  width = 16,
+  height = 14,
+  units = "cm",
+  device = cairo_pdf,
+  bg = "white"
+)
+
+# ------------------------------------------------------------
+# FIGURA 2. COLONIZACIÓN EN ACCESIONES CA
+# ------------------------------------------------------------
+
+ggsave(
+  filename = "Figuras_Colonizacion_HMA/Figura_2_Colonizacion_CA.tiff",
+  plot = fig_CA_col,
+  width = 22,
+  height = 15,
+  units = "cm",
+  dpi = 600,
+  compression = "lzw",
+  bg = "white"
+)
+
+ggsave(
+  filename = "Figuras_Colonizacion_HMA/Figura_2_Colonizacion_CA.pdf",
+  plot = fig_CA_col,
+  width = 22,
+  height = 15,
+  units = "cm",
+  device = cairo_pdf,
+  bg = "white"
+)
+
+# ------------------------------------------------------------
+# FIGURA 3. COLONIZACIÓN EN ACCESIONES CT
+# ------------------------------------------------------------
+
+ggsave(
+  filename = "Figuras_Colonizacion_HMA/Figura_3_Colonizacion_CT.tiff",
+  plot = fig_CT_col,
+  width = 22,
+  height = 15,
+  units = "cm",
+  dpi = 600,
+  compression = "lzw",
+  bg = "white"
+)
+
+ggsave(
+  filename = "Figuras_Colonizacion_HMA/Figura_3_Colonizacion_CT.pdf",
+  plot = fig_CT_col,
+  width = 22,
+  height = 15,
+  units = "cm",
+  device = cairo_pdf,
+  bg = "white"
+)
+
+
+
+ggsave(
+  "Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.png",
+  plot = fig_boxplot_col,
+  width = 16,
+  height = 14,
+  units = "cm",
+  dpi = 600,
+  bg = "white"
+)
+
+ggsave(
+  "Figuras_Colonizacion_HMA/Figura_2_Colonizacion_CA.png",
+  plot = fig_CA_col,
+  width = 22,
+  height = 15,
+  units = "cm",
+  dpi = 600,
+  bg = "white"
+)
+
+ggsave(
+  "Figuras_Colonizacion_HMA/Figura_3_Colonizacion_CT.png",
+  plot = fig_CT_col,
+  width = 22,
+  height = 15,
+  units = "cm",
+  dpi = 600,
+  bg = "white"
+)
+
+
+```
+
+
+
+
+# III. GRÁFICO FINAL: DENSIDAD DE ESPORAS vs COLONIZACIÓN
+
+```{r}
+
+getwd()
+
+# Posición automática del texto
+x_texto <- max(datos_cor$Densidad_esporas_g, na.rm = TRUE) * 0.98
+y_texto <- max(datos_cor$Colonizacion, na.rm = TRUE) * 0.98
+
+# Etiqueta con resultados de Spearman
+etiqueta_cor <- paste0(
+  "General: \u03c1 = ", sprintf("%.3f", rho_general),
+  "; p = ", sprintf("%.3f", p_general),
+  "\nCA: \u03c1 = ", sprintf("%.3f", rho_CA),
+  "; p = ", sprintf("%.3f", p_CA),
+  "\nCT: \u03c1 = ", sprintf("%.3f", rho_CT),
+  "; p = ", sprintf("%.3f", p_CT)
+)
+
+# Guardar gráfico en un objeto
+fig_correlacion <- ggplot(
+  datos_cor,
+  aes(
+    x = Densidad_esporas_g,
+    y = Colonizacion,
+    color = Grupo
+  )
+) +
+  geom_point(
+    size = 3,
+    alpha = 0.85
+  ) +
+  annotate(
+    "text",
+    x = x_texto,
+    y = y_texto,
+    label = etiqueta_cor,
+    hjust = 1,
+    vjust = 1,
+    size = 4
+  ) +
+  scale_color_manual(
+    values = c(
+      "CA" = "#1F78B4",
+      "CT" = "#E66101"
+    )
+  ) +
+  scale_x_continuous(
+    expand = expansion(mult = c(0.05, 0.05))
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0.05, 0.08))
+  ) +
+  labs(
+    x = expression(
+      "Densidad de esporas (esporas g"^{-1}*" de suelo)"
+    ),
+    y = "Colonización micorrízica (%)",
+    color = "Grupo"
+  ) +
+  theme_classic() +
+  theme(
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    legend.position = "bottom",
+    legend.direction = "horizontal",
+    legend.title = element_text(size = 11),
+    legend.text = element_text(size = 10),
+    plot.margin = margin(10, 10, 10, 10)
+  )
+
+fig_correlacion
+
+# Crear carpeta donde se guardarán las figuras
+dir.create("Figuras_Correlacion_HMA", showWarnings = FALSE)
+
+# Exportar como PNG en alta calidad
+ggsave(
+  filename = "Figuras_Correlacion_HMA/Figura_Correlacion_Densidad_vs_Colonizacion.png",
+  plot = fig_correlacion,
+  width = 18,
+  height = 14,
+  units = "cm",
+  dpi = 600,
+  bg = "white"
+)
+
+# Exportar como TIFF
+# ggsave(
+#   filename = "Figuras_Correlacion_HMA/Figura_Correlacion_Densidad_vs_Colonizacion.tiff",
+#   plot = fig_correlacion,
+#   width = 18,
+#   height = 14,
+#   units = "cm",
+#   dpi = 600,
+#   compression = "lzw",
+#   bg = "white"
+# )
+
+# Exportar como PDF vectorial
+# ggsave(
+#   filename = "Figuras_Correlacion_HMA/Figura_Correlacion_Densidad_vs_Colonizacion.pdf",
+#   plot = fig_correlacion,
+#   width = 18,
+#   height = 14,
+#   units = "cm",
+#   device = cairo_pdf,
+#   bg = "white"
+# )
+
+
+```
+
+
+
+
+
+
+
+
+
+
