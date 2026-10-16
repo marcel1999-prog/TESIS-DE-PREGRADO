@@ -47,7 +47,9 @@ datos <- datos %>%
     Densidad_esporas_g = `Total de esporas` / 6
   )
 
-View(datos)
+datos
+
+str(datos)
 
 ```
 
@@ -391,7 +393,8 @@ ggsave(
 library(readxl)
 colonizacion <- read_excel("data/base_datos_tincion.xlsx", 
     sheet = "fb")
-View(colonizacion)
+
+colonizacion
 
 ```
 
@@ -432,7 +435,7 @@ colonizacion_analisis <- colonizacion_promedio %>%
   ) %>%
   arrange(Grupo, Accesión)
 
-View(colonizacion_analisis)
+colonizacion_analisis
 
 
 # Accesiones de densidad que no aparecen en colonización
@@ -586,6 +589,43 @@ fig_boxplot_col <- ggplot(
 
 fig_boxplot_col
 
+
+# ------------------------------------------------------------
+# FIGURA 1. BOXPLOT CA vs CT
+# ------------------------------------------------------------
+
+ggsave(
+  filename = "manuscript/Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.tiff",
+  plot = fig_boxplot_col,
+  width = 16,
+  height = 14,
+  units = "cm",
+  dpi = 600,
+  compression = "lzw",
+  bg = "white"
+)
+
+# ggsave(
+#   "manuscript/Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.png",
+#   plot = fig_boxplot_col,
+#   width = 16,
+#   height = 14,
+#   units = "cm",
+#   dpi = 600,
+#   bg = "white"
+# )
+
+
+# ggsave(
+#   filename = "manuscript/Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.pdf",
+#   plot = fig_boxplot_col,
+#   width = 16,
+#   height = 14,
+#   units = "cm",
+#   device = cairo_pdf,
+#   bg = "white"
+# )
+
 # ============================================================
 # ============================================================
 # 12. COLONIZACIÓN POR ACCESIÓN - CA
@@ -676,118 +716,100 @@ fig_CT_col
 # 14. EXPORTAR FIGURAS EN ALTA CALIDAD
 # ============================================================
 
-# Crear carpeta de salida
-dir.create(
-  "Figuras_Colonizacion_HMA",
-  showWarnings = FALSE
-)
-
-# ------------------------------------------------------------
-# FIGURA 1. BOXPLOT CA vs CT
-# ------------------------------------------------------------
-
-ggsave(
-  filename = "Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.tiff",
-  plot = fig_boxplot_col,
-  width = 16,
-  height = 14,
-  units = "cm",
-  dpi = 600,
-  compression = "lzw",
-  bg = "white"
-)
-
-ggsave(
-  filename = "Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.pdf",
-  plot = fig_boxplot_col,
-  width = 16,
-  height = 14,
-  units = "cm",
-  device = cairo_pdf,
-  bg = "white"
-)
-
 # ------------------------------------------------------------
 # FIGURA 2. COLONIZACIÓN EN ACCESIONES CA
 # ------------------------------------------------------------
 
-ggsave(
-  filename = "Figuras_Colonizacion_HMA/Figura_2_Colonizacion_CA.tiff",
-  plot = fig_CA_col,
-  width = 22,
-  height = 15,
-  units = "cm",
-  dpi = 600,
-  compression = "lzw",
-  bg = "white"
-)
+# ggsave(
+#   filename = "manuscript/Figuras_Colonizacion_HMA/Figura_2_Colonizacion_CA.tiff",
+#   plot = fig_CA_col,
+#   width = 22,
+#   height = 15,
+#   units = "cm",
+#   dpi = 600,
+#   compression = "lzw",
+#   bg = "white"
+# )
 
-ggsave(
-  filename = "Figuras_Colonizacion_HMA/Figura_2_Colonizacion_CA.pdf",
-  plot = fig_CA_col,
-  width = 22,
-  height = 15,
-  units = "cm",
-  device = cairo_pdf,
-  bg = "white"
-)
+# ggsave(
+#   filename = "Figuras_Colonizacion_HMA/Figura_2_Colonizacion_CA.pdf",
+#   plot = fig_CA_col,
+#   width = 22,
+#   height = 15,
+#   units = "cm",
+#   device = cairo_pdf,
+#   bg = "white"
+# )
 
 # ------------------------------------------------------------
 # FIGURA 3. COLONIZACIÓN EN ACCESIONES CT
 # ------------------------------------------------------------
 
+# ggsave(
+#   filename = "Figuras_Colonizacion_HMA/Figura_3_Colonizacion_CT.tiff",
+#   plot = fig_CT_col,
+#   width = 22,
+#   height = 15,
+#   units = "cm",
+#   dpi = 600,
+#   compression = "lzw",
+#   bg = "white"
+# )
+
+
+# Exportar figuras colonizacion unidas
+
+# ============================================================
+# 15. COMBINAR FIGURAS CA Y CT
+# ============================================================
+
+fig_colonizacion <- (
+  fig_CA_col /
+  fig_CT_col
+) +
+  plot_layout(
+    heights = c(1, 1.2)
+  ) +
+  plot_annotation(
+    tag_levels = "a",
+    tag_prefix = "(",
+    tag_suffix = ")"
+  ) &
+  theme(
+    plot.tag = element_text(
+      face = "bold",
+      size = 14
+    ),
+    plot.tag.position = c(0.01, 0.99)
+  )
+
+# Visualizar figura combinada
+fig_colonizacion
+
+
+# ============================================================
+# 16. EXPORTAR FIGURA COMBINADA
+# ============================================================
+
 ggsave(
-  filename = "Figuras_Colonizacion_HMA/Figura_3_Colonizacion_CT.tiff",
-  plot = fig_CT_col,
+  filename = paste0(
+    "manuscript/Figuras_Colonizacion_HMA/",
+    "Figura_2_Colonizacion_CA_CT.tiff"
+  ),
+  plot = fig_colonizacion,
   width = 22,
-  height = 15,
+  height = 28,
   units = "cm",
   dpi = 600,
   compression = "lzw",
   bg = "white"
 )
 
-ggsave(
-  filename = "Figuras_Colonizacion_HMA/Figura_3_Colonizacion_CT.pdf",
-  plot = fig_CT_col,
-  width = 22,
-  height = 15,
-  units = "cm",
-  device = cairo_pdf,
-  bg = "white"
-)
 
 
 
-ggsave(
-  "Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.png",
-  plot = fig_boxplot_col,
-  width = 16,
-  height = 14,
-  units = "cm",
-  dpi = 600,
-  bg = "white"
-)
 
-ggsave(
-  "Figuras_Colonizacion_HMA/Figura_2_Colonizacion_CA.png",
-  plot = fig_CA_col,
-  width = 22,
-  height = 15,
-  units = "cm",
-  dpi = 600,
-  bg = "white"
-)
 
-ggsave(
-  "Figuras_Colonizacion_HMA/Figura_3_Colonizacion_CT.png",
-  plot = fig_CT_col,
-  width = 22,
-  height = 15,
-  units = "cm",
-  dpi = 600,
-  bg = "white"
-)
 
 
 ```
@@ -797,25 +819,142 @@ ggsave(
 
 # III. GRÁFICO FINAL: DENSIDAD DE ESPORAS vs COLONIZACIÓN
 
+
+# preparar data
+
 ```{r}
 
-getwd()
+# ============================================================
+# CORRELACIÓN ENTRE DENSIDAD DE ESPORAS Y COLONIZACIÓN
+# ============================================================
 
-# Posición automática del texto
-x_texto <- max(datos_cor$Densidad_esporas_g, na.rm = TRUE) * 0.98
-y_texto <- max(datos_cor$Colonizacion, na.rm = TRUE) * 0.98
+library(dplyr)
 
-# Etiqueta con resultados de Spearman
-etiqueta_cor <- paste0(
-  "General: \u03c1 = ", sprintf("%.3f", rho_general),
-  "; p = ", sprintf("%.3f", p_general),
-  "\nCA: \u03c1 = ", sprintf("%.3f", rho_CA),
-  "; p = ", sprintf("%.3f", p_CA),
-  "\nCT: \u03c1 = ", sprintf("%.3f", rho_CT),
-  "; p = ", sprintf("%.3f", p_CT)
+# Unir ambas bases mediante la accesión
+datos_cor <- datos %>%
+  select(Accesión, Grupo, Densidad_esporas_g) %>%
+  inner_join(
+    colonizacion_analisis %>%
+      select(Accesión, Colonizacion),
+    by = "Accesión"
+  )
+
+# Visualizar
+View(datos_cor)
+
+# Verificar número de observaciones
+nrow(datos_cor)
+
+# Verificar estructura
+str(datos_cor)
+
+```
+
+# 2. Correlación de Spearman
+
+```{r}
+
+# ============================================================
+# 2. CORRELACIÓN DE SPEARMAN
+# ============================================================
+
+# Correlación general
+cor_general <- cor.test(
+  datos_cor$Densidad_esporas_g,
+  datos_cor$Colonizacion,
+  method = "spearman",
+  exact = FALSE
 )
 
-# Guardar gráfico en un objeto
+cor_general
+
+
+# Correlación grupo CA
+cor_CA <- cor.test(
+  datos_cor$Densidad_esporas_g[datos_cor$Grupo == "CA"],
+  datos_cor$Colonizacion[datos_cor$Grupo == "CA"],
+  method = "spearman",
+  exact = FALSE
+)
+
+cor_CA
+
+
+# Correlación grupo CT
+cor_CT <- cor.test(
+  datos_cor$Densidad_esporas_g[datos_cor$Grupo == "CT"],
+  datos_cor$Colonizacion[datos_cor$Grupo == "CT"],
+  method = "spearman",
+  exact = FALSE
+)
+
+cor_CT
+
+```
+
+
+
+```{r}
+
+# ============================================================
+# 3. EXTRAER COEFICIENTES Y VALORES P
+# ============================================================
+
+# General
+rho_general <- unname(cor_general$estimate)
+p_general <- cor_general$p.value
+
+# CA
+rho_CA <- unname(cor_CA$estimate)
+p_CA <- cor_CA$p.value
+
+# CT
+rho_CT <- unname(cor_CT$estimate)
+p_CT <- cor_CT$p.value
+
+
+# Tabla resumen
+resultados_cor <- data.frame(
+  Grupo = c("General", "CA", "CT"),
+  n = c(
+    nrow(datos_cor),
+    sum(datos_cor$Grupo == "CA"),
+    sum(datos_cor$Grupo == "CT")
+  ),
+  Rho = c(rho_general, rho_CA, rho_CT),
+  p_valor = c(p_general, p_CA, p_CT)
+)
+
+resultados_cor
+
+```
+
+
+```{r}
+
+# ============================================================
+# 4. GRÁFICO DE CORRELACIÓN
+# ============================================================
+
+# Formatear valores p
+formato_p <- function(p) {
+  if (p < 0.001) {
+    return("p < 0.001")
+  }
+  paste0("p = ", sprintf("%.3f", p))
+}
+
+# Etiquetas estadísticas
+etiqueta_cor <- paste0(
+  "General: \u03c1 = ", sprintf("%.3f", rho_general),
+  "; ", formato_p(p_general),
+  "\nCA: \u03c1 = ", sprintf("%.3f", rho_CA),
+  "; ", formato_p(p_CA),
+  "\nCT: \u03c1 = ", sprintf("%.3f", rho_CT),
+  "; ", formato_p(p_CT)
+)
+
+# Crear figura
 fig_correlacion <- ggplot(
   datos_cor,
   aes(
@@ -830,12 +969,12 @@ fig_correlacion <- ggplot(
   ) +
   annotate(
     "text",
-    x = x_texto,
-    y = y_texto,
+    x = Inf,
+    y = Inf,
     label = etiqueta_cor,
-    hjust = 1,
-    vjust = 1,
-    size = 4
+    hjust = 1.05,
+    vjust = 1.2,
+    size = 3.8
   ) +
   scale_color_manual(
     values = c(
@@ -844,14 +983,16 @@ fig_correlacion <- ggplot(
     )
   ) +
   scale_x_continuous(
-    expand = expansion(mult = c(0.05, 0.05))
+    expand = expansion(mult = c(0.05, 0.08))
   ) +
   scale_y_continuous(
-    expand = expansion(mult = c(0.05, 0.08))
+    limits = c(0, 100),
+    breaks = seq(0, 100, 20)
   ) +
   labs(
     x = expression(
-      "Densidad de esporas (esporas g"^{-1}*" de suelo)"
+      "Densidad de esporas (esporas g"^{-1}*
+      " de suelo)"
     ),
     y = "Colonización micorrízica (%)",
     color = "Grupo"
@@ -869,12 +1010,45 @@ fig_correlacion <- ggplot(
 
 fig_correlacion
 
-# Crear carpeta donde se guardarán las figuras
-dir.create("Figuras_Correlacion_HMA", showWarnings = FALSE)
+```
 
-# Exportar como PNG en alta calidad
+
+```{r}
+
+# ============================================================
+# 5. EXPORTACIÓN
+# ============================================================
+
+# Crear carpeta
+carpeta <- "manuscript/Figuras_Correlacion_HMA"
+
+dir.create(
+  carpeta,
+  recursive = TRUE,
+  showWarnings = FALSE
+)
+
+# Exportar TIFF
 ggsave(
-  filename = "Figuras_Correlacion_HMA/Figura_Correlacion_Densidad_vs_Colonizacion.png",
+  filename = file.path(
+    carpeta,
+    "Figura_Correlacion_Densidad_vs_Colonizacion.tiff"
+  ),
+  plot = fig_correlacion,
+  width = 18,
+  height = 14,
+  units = "cm",
+  dpi = 600,
+  compression = "lzw",
+  bg = "white"
+)
+
+# Exportar PNG
+ggsave(
+  filename = file.path(
+    carpeta,
+    "Figura_Correlacion_Densidad_vs_Colonizacion.png"
+  ),
   plot = fig_correlacion,
   width = 18,
   height = 14,
@@ -883,38 +1057,7 @@ ggsave(
   bg = "white"
 )
 
-# Exportar como TIFF
-# ggsave(
-#   filename = "Figuras_Correlacion_HMA/Figura_Correlacion_Densidad_vs_Colonizacion.tiff",
-#   plot = fig_correlacion,
-#   width = 18,
-#   height = 14,
-#   units = "cm",
-#   dpi = 600,
-#   compression = "lzw",
-#   bg = "white"
-# )
-
-# Exportar como PDF vectorial
-# ggsave(
-#   filename = "Figuras_Correlacion_HMA/Figura_Correlacion_Densidad_vs_Colonizacion.pdf",
-#   plot = fig_correlacion,
-#   width = 18,
-#   height = 14,
-#   units = "cm",
-#   device = cairo_pdf,
-#   bg = "white"
-# )
-
-
 ```
-
-
-
-
-
-
-
 
 
 
