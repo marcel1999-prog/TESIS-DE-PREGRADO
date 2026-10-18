@@ -132,6 +132,13 @@ mann_whitney
 
 p_valor <- mann_whitney$p.value
 
+etiqueta_p <- paste0(
+  "Mann-Whitney: ",
+  if (p_valor < 0.001) "p < 0.001" else paste0("p = ", sprintf("%.3f", p_valor))
+)
+
+limite_y <- max(datos$Densidad_esporas_g, na.rm = TRUE) * 1.18
+
 fig_boxplot <- ggplot(
   datos,
   aes(
@@ -143,24 +150,29 @@ fig_boxplot <- ggplot(
   geom_boxplot(
     width = 0.55,
     outlier.shape = NA,
-    alpha = 0.7
+    alpha = 0.85,
+    color = "black",
+    linewidth = 0.3
   ) +
   geom_jitter(
+    color = "gray20",
     width = 0.10,
-    size = 2
+    height = 0,
+    size = 1.5,
+    alpha = 0.85
   ) +
   annotate(
     "text",
-    x = 1.5,
-    y = max(datos$Densidad_esporas_g, na.rm = TRUE) * 1.08,
-    label = paste0(
-      "Mann-Whitney: p = ",
-      format.pval(p_valor, digits = 3)
-    ),
+    x = 2.7,
+    y = limite_y,
+    label = etiqueta_p,
+    hjust = 1,
     size = 4
   ) +
-  expand_limits(
-    y = max(datos$Densidad_esporas_g, na.rm = TRUE) * 1.15
+  scale_fill_manual(values = colores_grupo) +
+  scale_y_continuous(
+    limits = c(0, limite_y),
+    expand = expansion(mult = c(0, 0.02))
   ) +
   labs(
     x = "Grupo",
@@ -168,11 +180,13 @@ fig_boxplot <- ggplot(
       "Densidad de esporas (g"^{-1}*" de suelo)"
     )
   ) +
+  coord_cartesian(clip = "off") +
   theme_classic() +
   theme(
     legend.position = "none",
     axis.title = element_text(size = 12),
-    axis.text = element_text(size = 11)
+    axis.text = element_text(size = 11),
+    plot.margin = margin(20, 20, 20, 20)
   )
 
 fig_boxplot
@@ -386,77 +400,106 @@ ggsave(
 
 # II. COLONIZACIÓN MICORRÍZICA
 
-# 1. Cargar data
+El análisis considera una observación por accesión (planta), obtenida como el promedio de tres mediciones (R1, R2 y R3). Se comparan los grupos CA y CT mediante la prueba t de Welch.
+
+## 1. Cargar data
 
 ```{r}
 
-library(readxl)
-colonizacion <- read_excel("data/base_datos_tincion.xlsx", 
-    sheet = "fb")
+colonizacion <- read_excel(
+  "data/base_datos_tincion.xlsx",
+  sheet = "fb"
+)
 
-colonizacion
+# Inspección inicial
+head(colonizacion)
+str(colonizacion)
 
 ```
 
+## 2. Identificar las accesiones y los grupos
+
 ```{r}
-
-
-# ============================================================
-# 3. PREPARAR LOS DATOS DE COLONIZACIÓN
-# ============================================================
-
 colonizacion <- colonizacion %>%
   mutate(
+    muestra = trimws(as.character(muestra)),
+    repeticion = toupper(trimws(as.character(repeticion))),
     Accesión = gsub("_", "", muestra),
     Grupo = substr(Accesión, 1, 2)
   )
 
+colonizacion %>%
+  count(Grupo)
 
-# ============================================================
-# 4. PROMEDIO DE R1, R2 Y R3 POR ACCESIÓN
-# ============================================================
+```
 
-colonizacion_promedio <- colonizacion %>%
-  group_by(Accesión, Grupo) %>%
-  summarise(
-    Colonizacion = mean(porcentaje, na.rm =TRUE),
-    .groups = "drop"
-  )
+## 3. Seleccionar las accesiones y comprobar las repeticiones
 
 
-# ============================================================
-# 5. CONSERVAR SOLO LAS 35 ACCESIONES USADAS EN DENSIDAD
-# ============================================================
-
-colonizacion_analisis <- colonizacion_promedio %>%
-  semi_join(
-    datos %>% select(Accesión),
-    by = "Accesión"
-  ) %>%
-  arrange(Grupo, Accesión)
-
-colonizacion_analisis
-
-
-# Accesiones de densidad que no aparecen en colonización
-anti_join(
+```{r}
+# Comprobar correspondencia con las accesiones de densidad de esporas.
+accesiones_faltantes <- anti_join(
   datos %>% distinct(Accesión),
-  colonizacion_promedio %>% distinct(Accesión),
+  colonizacion %>% distinct(Accesión),
   by = "Accesión"
 )
 
-# Número de accesiones por grupo
-colonizacion_analisis %>%
-  count(Grupo)
+accesiones_faltantes
 
-# Verificar accesiones únicas
+
+# Conservar solo las accesiones comunes a ambos análisis.
+colonizacion_35 <- colonizacion %>%
+  semi_join(datos %>% distinct(Accesión), by = "Accesión")
+
+# Comprobar 3 registros distintos y no faltantes por planta.
+verificacion_repeticiones <- colonizacion_35 %>%
+  group_by(Accesión, Grupo) %>%
+  summarise(
+    n_registros = n(),
+    n_repeticiones = n_distinct(repeticion),
+    repeticiones_correctas = setequal(repeticion, c("R1", "R2", "R3")),
+    n_validos = sum(!is.na(porcentaje)),
+    .groups = "drop"
+  )
+
+problemas_repeticiones <- verificacion_repeticiones %>%
+  filter(n_registros != 3 | n_repeticiones != 3 | !repeticiones_correctas | n_validos != 3)
+
+problemas_repeticiones
+
+```
+
+## 4. Calcular la colonización promedio por accesión
+
+```{r}
+colonizacion_analisis <- colonizacion_35 %>%
+  group_by(Accesión, Grupo) %>%
+  summarise(
+    Colonizacion = mean(porcentaje),
+    .groups = "drop"
+  ) %>%
+  arrange(Grupo, Accesión)
+
+# Verificar número de accesiones y distribución por grupo.
+colonizacion_analisis %>% count(Grupo)
 n_distinct(colonizacion_analisis$Accesión)
 
-# ============================================================
-# 6. ESTADÍSTICA DESCRIPTIVA GENERAL
-# ============================================================
+# Comprobar que no se perdieron accesiones ni existen valores ausentes.
+stopifnot(
+  nrow(colonizacion_analisis) == n_distinct(datos$Accesión),
+  !anyNA(colonizacion_analisis$Colonizacion),
+  all(colonizacion_analisis$Grupo %in% c("CA", "CT"))
+)
 
-descriptivos_general <- colonizacion_analisis %>%
+colonizacion_analisis
+```
+
+## 5. Estadística descriptiva
+
+### 5.1. Descriptivos generales
+
+```{r}
+descriptivos_general_col <- colonizacion_analisis %>%
   summarise(
     n = n(),
     Media = mean(Colonizacion),
@@ -466,14 +509,13 @@ descriptivos_general <- colonizacion_analisis %>%
     Maximo = max(Colonizacion)
   )
 
-descriptivos_general
+descriptivos_general_col
+```
 
+### 5.2. Descriptivos por grupo
 
-# ============================================================
-# 7. ESTADÍSTICA DESCRIPTIVA POR GRUPO
-# ============================================================
-
-descriptivos_grupo <- colonizacion_analisis %>%
+```{r}
+descriptivos_grupo_col <- colonizacion_analisis %>%
   group_by(Grupo) %>%
   summarise(
     n = n(),
@@ -481,294 +523,158 @@ descriptivos_grupo <- colonizacion_analisis %>%
     DE = sd(Colonizacion),
     Mediana = median(Colonizacion),
     Minimo = min(Colonizacion),
-    Maximo = max(Colonizacion)
+    Maximo = max(Colonizacion),
+    .groups = "drop"
   )
 
-descriptivos_grupo
+descriptivos_grupo_col
+```
 
+## 6. Evaluar la normalidad por grupo
 
-# ============================================================
-# 8. NORMALIDAD: SHAPIRO-WILK
-# ============================================================
-
-shapiro_CA <- shapiro.test(
-  colonizacion_analisis$Colonizacion[
-    colonizacion_analisis$Grupo == "CA"
-  ]
+```{r}
+shapiro_CA_col <- shapiro.test(
+  colonizacion_analisis$Colonizacion[colonizacion_analisis$Grupo == "CA"]
 )
 
-shapiro_CT <- shapiro.test(
-  colonizacion_analisis$Colonizacion[
-    colonizacion_analisis$Grupo == "CT"
-  ]
+shapiro_CT_col <- shapiro.test(
+  colonizacion_analisis$Colonizacion[colonizacion_analisis$Grupo == "CT"]
 )
 
-shapiro_CA
-shapiro_CT
+shapiro_CA_col
+shapiro_CT_col
 
+# Tabla de resultados de Shapiro-Wilk
+normalidad_col <- tibble(
+  Grupo = c("CA", "CT"),
+  W = c(unname(shapiro_CA_col$statistic), unname(shapiro_CT_col$statistic)),
+  p_valor = c(shapiro_CA_col$p.value, shapiro_CT_col$p.value)
+)
 
-# ============================================================
-# 9. COMPARACIÓN CA vs CT
-# t DE WELCH
-# ============================================================
+normalidad_col
+```
 
-comparacion <- t.test(
+## 7. Comparación entre CA y CT: prueba t de Welch
+
+Se comparan las medias por planta; la prueba no exige varianzas iguales ni tamaños muestrales idénticos.
+
+```{r}
+comparacion_col <- t.test(
   Colonizacion ~ Grupo,
   data = colonizacion_analisis,
   var.equal = FALSE
 )
 
-comparacion
+comparacion_col
+```
 
+## 8. Definir los colores y la carpeta de salida
 
-# ============================================================
-# 10. COLORES
-# ============================================================
+```{r}
+p_valor_col <- comparacion_col$p.value
 
-colores_grupo <- c(
-  "CA" = "#1F78B4",
-  "CT" = "#E66101"
+etiqueta_p_col <- paste0(
+  "t de Welch: ",
+  if (p_valor_col < 0.001) "p < 0.001" else paste0("p = ", sprintf("%.3f", p_valor_col))
 )
-
-
-# ============================================================
-# ============================================================
-# 11. BOXPLOT CA vs CT
-# ============================================================
-
-p_valor <- comparacion$p.value
 
 fig_boxplot_col <- ggplot(
   colonizacion_analisis,
-  aes(
-    x = Grupo,
-    y = Colonizacion,
-    fill = Grupo
-  )
+  aes(x = Grupo, y = Colonizacion, fill = Grupo)
 ) +
   geom_boxplot(
     width = 0.55,
     alpha = 0.85,
     color = "black",
-    linewidth = 0.6,
+    linewidth = 0.3,
     outlier.shape = NA
   ) +
   geom_jitter(
-    aes(color = Grupo),
+    color = "gray20",         # color único más visible
     width = 0.10,
-    size = 2.4,
-    alpha = 0.9,
-    show.legend = FALSE
+    height = 0,
+    size = 1.5,
+    alpha = 0.85
   ) +
   annotate(
     "text",
-    x = 1.5,
-    y = 85,
-    label = paste0(
-      "t de Welch: p = ",
-      format.pval(p_valor, digits = 3)
-    ),
+    x = 2.7,                 # mover a la derecha
+    y = 105,                   # arriba, pero con margen
+    label = etiqueta_p_col,
+    hjust = 1,                # alinear hacia la derecha
     size = 4
   ) +
   scale_fill_manual(values = colores_grupo) +
-  scale_color_manual(values = colores_grupo) +
   scale_y_continuous(
-    limits = c(0, 100),
-    breaks = seq(0, 100, 20)
+    limits = c(0, 105),       # más aire arriba
+    breaks = seq(0, 100, 20),
+    expand = expansion(mult = c(0, 0.02))
   ) +
   labs(
     x = "Grupo",
     y = "Colonización micorrízica (%)"
   ) +
+  coord_cartesian(clip = "off") +
   theme_classic() +
   theme(
     legend.position = "none",
     axis.title = element_text(size = 12),
-    axis.text = element_text(size = 11)
+    axis.text = element_text(size = 11),
+    plot.margin = margin(20, 20, 20, 20)   # más margen a la derecha
   )
 
 fig_boxplot_col
 
+```
 
-# ------------------------------------------------------------
-# FIGURA 1. BOXPLOT CA vs CT
-# ------------------------------------------------------------
+## 10. Figura 2: colonización por accesión en paneles (a) CA y (b) CT
 
-ggsave(
-  filename = "manuscript/Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.tiff",
-  plot = fig_boxplot_col,
-  width = 16,
-  height = 14,
-  units = "cm",
-  dpi = 600,
-  compression = "lzw",
-  bg = "white"
-)
+Para evitar repetir dos gráficos casi idénticos, se define una función de diseño y se aplica a cada grupo.
 
-# ggsave(
-#   "manuscript/Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.png",
-#   plot = fig_boxplot_col,
-#   width = 16,
-#   height = 14,
-#   units = "cm",
-#   dpi = 600,
-#   bg = "white"
-# )
-
-
-# ggsave(
-#   filename = "manuscript/Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.pdf",
-#   plot = fig_boxplot_col,
-#   width = 16,
-#   height = 14,
-#   units = "cm",
-#   device = cairo_pdf,
-#   bg = "white"
-# )
-
-# ============================================================
-# ============================================================
-# 12. COLONIZACIÓN POR ACCESIÓN - CA
-# ============================================================
-
-fig_CA_col <- ggplot(
-  filter(colonizacion_analisis, Grupo == "CA"),
-  aes(
-    x = reorder(Accesión, Colonizacion),
-    y = Colonizacion
-  )
-) +
-  geom_col(
-    width = 0.75,
-    fill = "#1F78B4",
-    color = "black",
-    linewidth = 0.3
+```{r}
+crear_fig_accesiones_col <- function(grupo) {
+  ggplot(
+    filter(colonizacion_analisis, Grupo == grupo),
+    aes(
+      x = reorder(Accesión, Colonizacion),
+      y = Colonizacion
+    )
   ) +
-  scale_y_continuous(
-    limits = c(0, 100),
-    breaks = seq(0, 100, 20)
-  ) +
-  labs(
-    x = "Accesión",
-    y = "Colonización micorrízica (%)",
-    title = "Colonización micorrízica en accesiones CA"
-  ) +
-  theme_classic() +
-  theme(
-    axis.text.x = element_text(
-      angle = 90,
-      hjust = 1
-    ),
-    plot.title = element_text(
-      hjust = 0.5,
-      face = "bold"
-    ),
-    axis.title = element_text(size = 12),
-    axis.text = element_text(size = 10)
-  )
+    geom_col(
+      width = 0.75,
+      fill = colores_grupo[[grupo]],
+      color = "black",
+      linewidth = 0.3
+    ) +
+    scale_y_continuous(
+      limits = c(0, 100),
+      breaks = seq(0, 100, 20)
+    ) +
+    labs(
+      x = "Accesión",
+      y = "Colonización micorrízica (%)",
+      title = paste("Accesiones", grupo)
+    ) +
+    theme_classic() +
+    theme(
+      axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      axis.title = element_text(size = 12),
+      axis.text = element_text(size = 10)
+    )
+}
 
-fig_CA_col
+# Crear los paneles
+fig_CA_col <- crear_fig_accesiones_col("CA")
+fig_CT_col <- crear_fig_accesiones_col("CT")
 
-# ============================================================
-# ============================================================
-# 13. COLONIZACIÓN POR ACCESIÓN - CT
-# ============================================================
-
-fig_CT_col <- ggplot(
-  filter(colonizacion_analisis, Grupo == "CT"),
-  aes(
-    x = reorder(Accesión, Colonizacion),
-    y = Colonizacion
-  )
-) +
-  geom_col(
-    width = 0.75,
-    fill = "#E66101",
-    color = "black",
-    linewidth = 0.3
-  ) +
-  scale_y_continuous(
-    limits = c(0, 100),
-    breaks = seq(0, 100, 20)
-  ) +
-  labs(
-    x = "Accesión",
-    y = "Colonización micorrízica (%)",
-    title = "Colonización micorrízica en accesiones CT"
-  ) +
-  theme_classic() +
-  theme(
-    axis.text.x = element_text(
-      angle = 90,
-      hjust = 1
-    ),
-    plot.title = element_text(
-      hjust = 0.5,
-      face = "bold"
-    ),
-    axis.title = element_text(size = 12),
-    axis.text = element_text(size = 10)
-  )
-
-fig_CT_col
-
-# ============================================================
-# 14. EXPORTAR FIGURAS EN ALTA CALIDAD
-# ============================================================
-
-# ------------------------------------------------------------
-# FIGURA 2. COLONIZACIÓN EN ACCESIONES CA
-# ------------------------------------------------------------
-
-# ggsave(
-#   filename = "manuscript/Figuras_Colonizacion_HMA/Figura_2_Colonizacion_CA.tiff",
-#   plot = fig_CA_col,
-#   width = 22,
-#   height = 15,
-#   units = "cm",
-#   dpi = 600,
-#   compression = "lzw",
-#   bg = "white"
-# )
-
-# ggsave(
-#   filename = "Figuras_Colonizacion_HMA/Figura_2_Colonizacion_CA.pdf",
-#   plot = fig_CA_col,
-#   width = 22,
-#   height = 15,
-#   units = "cm",
-#   device = cairo_pdf,
-#   bg = "white"
-# )
-
-# ------------------------------------------------------------
-# FIGURA 3. COLONIZACIÓN EN ACCESIONES CT
-# ------------------------------------------------------------
-
-# ggsave(
-#   filename = "Figuras_Colonizacion_HMA/Figura_3_Colonizacion_CT.tiff",
-#   plot = fig_CT_col,
-#   width = 22,
-#   height = 15,
-#   units = "cm",
-#   dpi = 600,
-#   compression = "lzw",
-#   bg = "white"
-# )
-
-
-# Exportar figuras colonizacion unidas
-
-# ============================================================
-# 15. COMBINAR FIGURAS CA Y CT
-# ============================================================
+# Combinar figuras con las mismas dimensiones
 
 fig_colonizacion <- (
-  fig_CA_col /
-  fig_CT_col
+  fig_CA_col / fig_CT_col
 ) +
   plot_layout(
-    heights = c(1, 1.2)
+    heights = c(1, 1)
   ) +
   plot_annotation(
     tag_levels = "a",
@@ -783,19 +689,31 @@ fig_colonizacion <- (
     plot.tag.position = c(0.01, 0.99)
   )
 
-# Visualizar figura combinada
 fig_colonizacion
 
+```
 
-# ============================================================
-# 16. EXPORTAR FIGURA COMBINADA
-# ============================================================
+## 11. Exportar las figuras finales
 
+Se guardan las dos figuras del análisis en formato TIFF de 600 dpi y compresión LZW.
+
+```{r}
+# Figura 1: comparación entre grupos
 ggsave(
-  filename = paste0(
-    "manuscript/Figuras_Colonizacion_HMA/",
-    "Figura_2_Colonizacion_CA_CT.tiff"
-  ),
+  filename = "manuscript/Figuras_Colonizacion_HMA/Figura_1_Boxplot_Colonizacion_CA_vs_CT.tiff",
+  plot = fig_boxplot_col,
+  width = 16,
+  height = 14,
+  units = "cm",
+  dpi = 600,
+  compression = "lzw",
+  bg = "white"
+)
+
+
+# Figura 2: accesiones CA y CT combinadas
+ggsave(
+  filename = "manuscript/Figuras_Colonizacion_HMA/Figura_2_Colonizacion_CA_CT.tiff",
   plot = fig_colonizacion,
   width = 22,
   height = 28,
@@ -806,14 +724,7 @@ ggsave(
 )
 
 
-
-
-
-
-
-
 ```
-
 
 
 
@@ -823,10 +734,6 @@ ggsave(
 # preparar data
 
 ```{r}
-
-# ============================================================
-# CORRELACIÓN ENTRE DENSIDAD DE ESPORAS Y COLONIZACIÓN
-# ============================================================
 
 library(dplyr)
 
@@ -853,10 +760,6 @@ str(datos_cor)
 # 2. Correlación de Spearman
 
 ```{r}
-
-# ============================================================
-# 2. CORRELACIÓN DE SPEARMAN
-# ============================================================
 
 # Correlación general
 cor_general <- cor.test(
@@ -892,13 +795,9 @@ cor_CT
 
 ```
 
-
+# 3. EXTRAER COEFICIENTES Y VALORES P
 
 ```{r}
-
-# ============================================================
-# 3. EXTRAER COEFICIENTES Y VALORES P
-# ============================================================
 
 # General
 rho_general <- unname(cor_general$estimate)
@@ -930,11 +829,9 @@ resultados_cor
 ```
 
 
-```{r}
-
-# ============================================================
 # 4. GRÁFICO DE CORRELACIÓN
-# ============================================================
+
+```{r}
 
 # Formatear valores p
 formato_p <- function(p) {
@@ -964,7 +861,7 @@ fig_correlacion <- ggplot(
   )
 ) +
   geom_point(
-    size = 3,
+    size = 2.2,     # puntos más pequeños
     alpha = 0.85
   ) +
   annotate(
@@ -983,41 +880,40 @@ fig_correlacion <- ggplot(
     )
   ) +
   scale_x_continuous(
-    expand = expansion(mult = c(0.05, 0.08))
+    expand = expansion(mult = c(0.06, 0.10))
   ) +
   scale_y_continuous(
-    limits = c(0, 100),
-    breaks = seq(0, 100, 20)
+    limits = c(0, 105),
+    breaks = seq(0, 100, 20),
+    expand = expansion(mult = c(0.02, 0.04))
   ) +
   labs(
     x = expression(
-      "Densidad de esporas (esporas g"^{-1}*
+      "Densidad de esporas (g"^{-1}*
       " de suelo)"
     ),
     y = "Colonización micorrízica (%)",
     color = "Grupo"
   ) +
+  coord_cartesian(clip = "off") +
   theme_classic() +
   theme(
     axis.title = element_text(size = 12),
     axis.text = element_text(size = 10),
-    legend.position = "bottom",
+    legend.position = "top",              # leyenda arriba
     legend.direction = "horizontal",
     legend.title = element_text(size = 11),
     legend.text = element_text(size = 10),
-    plot.margin = margin(10, 10, 10, 10)
+    plot.margin = margin(20, 20, 20, 20) # más márgenes
   )
 
 fig_correlacion
 
 ```
 
+# 5. EXPORTACIÓN
 
 ```{r}
-
-# ============================================================
-# 5. EXPORTACIÓN
-# ============================================================
 
 # Crear carpeta
 carpeta <- "manuscript/Figuras_Correlacion_HMA"
@@ -1044,165 +940,20 @@ ggsave(
 )
 
 # Exportar PNG
-ggsave(
-  filename = file.path(
-    carpeta,
-    "Figura_Correlacion_Densidad_vs_Colonizacion.png"
-  ),
-  plot = fig_correlacion,
-  width = 18,
-  height = 14,
-  units = "cm",
-  dpi = 600,
-  bg = "white"
-)
+# ggsave(
+#   filename = file.path(
+#     carpeta,
+#     "Figura_Correlacion_Densidad_vs_Colonizacion.png"
+#   ),
+#   plot = fig_correlacion,
+#   width = 18,
+#   height = 14,
+#   units = "cm",
+#   dpi = 600,
+#   bg = "white"
+# )
 
 ```
 
 
-
-
-```{r}
-
-library(ggplot2)
-library(dplyr)
-library(ggrepel)
-
-# ============================================================
-# FIGURA FINAL DE CORRELACIÓN
-# ============================================================
-
-# Seleccionar accesiones destacadas
-datos_etiquetas <- bind_rows(
-  datos_cor %>%
-    slice_max(Densidad_esporas_g, n = 1),
-
-  datos_cor %>%
-    slice_max(Colonizacion, n = 1)
-) %>%
-  distinct(Accesión, .keep_all = TRUE)
-
-
-# Etiqueta estadística
-etiqueta <- paste0(
-  "Spearman: \u03c1 = ",
-  sprintf("%.3f", rho_general),
-  "   |   p = ",
-  sprintf("%.3f", p_general),
-  "   |   n = ", nrow(datos_cor)
-)
-
-
-# Crear figura
-fig_correlacion_final <- ggplot(
-  datos_cor,
-  aes(
-    x = Densidad_esporas_g,
-    y = Colonizacion
-  )
-) +
-
-  # Puntos individuales
-  geom_point(
-    aes(
-      fill = Grupo,
-      shape = Grupo
-    ),
-    size = 3.8,
-    color = "black",
-    stroke = 0.35,
-    alpha = 0.90
-  ) +
-
-  # Identificar accesiones destacadas
-  geom_label_repel(
-    data = datos_etiquetas,
-    aes(label = Accesión),
-    size = 3.3,
-    color = "gray20",
-    fill = "white",
-    label.size = 0.2,
-    box.padding = 0.5,
-    point.padding = 0.4,
-    min.segment.length = 0,
-    seed = 123
-  ) +
-
-  # Colores
-  scale_fill_manual(
-    values = c(
-      "CA" = "#1F78B4",
-      "CT" = "#E66101"
-    )
-  ) +
-
-  # Símbolos
-  scale_shape_manual(
-    values = c(
-      "CA" = 21,
-      "CT" = 24
-    )
-  ) +
-
-  # Ejes
-  scale_x_continuous(
-    expand = expansion(mult = c(0.06, 0.12))
-  ) +
-
-  scale_y_continuous(
-    breaks = seq(0, 100, 20)
-  ) +
-
-  coord_cartesian(
-    ylim = c(0, 100)
-  ) +
-
-  # Títulos
-  labs(
-    title = "Densidad de esporas y colonización micorrízica",
-    subtitle = etiqueta,
-    x = expression(
-      "Densidad de esporas (esporas g"^{-1}*
-      " de suelo)"
-    ),
-    y = "Colonización micorrízica (%)",
-    fill = "Grupo",
-    shape = "Grupo"
-  ) +
-
-  # Diseño científico
-  theme_classic(base_size = 12) +
-
-  theme(
-    plot.title = element_text(
-      size = 13,
-      face = "bold",
-      hjust = 0.5
-    ),
-
-    plot.subtitle = element_text(
-      size = 11,
-      hjust = 0.5,
-      color = "gray35",
-      margin = margin(b = 14)
-    ),
-
-    axis.title = element_text(size = 12),
-    axis.text = element_text(size = 10),
-
-    legend.position = "top",
-    legend.direction = "horizontal",
-    legend.title = element_blank(),
-
-    panel.grid.major.y = element_line(
-      color = "gray90",
-      linewidth = 0.3
-    ),
-
-    plot.margin = margin(12, 15, 12, 12)
-  )
-
-fig_correlacion_final
-
-```
-
+El coeficiente de correlación de Spearman entre la densidad de esporas y la colonización micorrízica, no se evidenció una asociación significativa entre ambas variables (ρ = -0.019; p = 0.912). De manera similar, al analizar los grupos por separado, tampoco se observaron correlaciones significativas en CA (ρ = 0.022; p = 0.943) ni en CT (ρ = -0.219; p = 0.329). Estos resultados indican que, en las accesiones evaluadas, una mayor densidad de esporas no estuvo asociada con un mayor porcentaje de colonización micorrízica.
