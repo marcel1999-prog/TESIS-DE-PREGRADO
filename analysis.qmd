@@ -1061,3 +1061,148 @@ ggsave(
 
 
 
+
+```{r}
+
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+
+# ============================================================
+# FIGURA FINAL DE CORRELACIÓN
+# ============================================================
+
+# Seleccionar accesiones destacadas
+datos_etiquetas <- bind_rows(
+  datos_cor %>%
+    slice_max(Densidad_esporas_g, n = 1),
+
+  datos_cor %>%
+    slice_max(Colonizacion, n = 1)
+) %>%
+  distinct(Accesión, .keep_all = TRUE)
+
+
+# Etiqueta estadística
+etiqueta <- paste0(
+  "Spearman: \u03c1 = ",
+  sprintf("%.3f", rho_general),
+  "   |   p = ",
+  sprintf("%.3f", p_general),
+  "   |   n = ", nrow(datos_cor)
+)
+
+
+# Crear figura
+fig_correlacion_final <- ggplot(
+  datos_cor,
+  aes(
+    x = Densidad_esporas_g,
+    y = Colonizacion
+  )
+) +
+
+  # Puntos individuales
+  geom_point(
+    aes(
+      fill = Grupo,
+      shape = Grupo
+    ),
+    size = 3.8,
+    color = "black",
+    stroke = 0.35,
+    alpha = 0.90
+  ) +
+
+  # Identificar accesiones destacadas
+  geom_label_repel(
+    data = datos_etiquetas,
+    aes(label = Accesión),
+    size = 3.3,
+    color = "gray20",
+    fill = "white",
+    label.size = 0.2,
+    box.padding = 0.5,
+    point.padding = 0.4,
+    min.segment.length = 0,
+    seed = 123
+  ) +
+
+  # Colores
+  scale_fill_manual(
+    values = c(
+      "CA" = "#1F78B4",
+      "CT" = "#E66101"
+    )
+  ) +
+
+  # Símbolos
+  scale_shape_manual(
+    values = c(
+      "CA" = 21,
+      "CT" = 24
+    )
+  ) +
+
+  # Ejes
+  scale_x_continuous(
+    expand = expansion(mult = c(0.06, 0.12))
+  ) +
+
+  scale_y_continuous(
+    breaks = seq(0, 100, 20)
+  ) +
+
+  coord_cartesian(
+    ylim = c(0, 100)
+  ) +
+
+  # Títulos
+  labs(
+    title = "Densidad de esporas y colonización micorrízica",
+    subtitle = etiqueta,
+    x = expression(
+      "Densidad de esporas (esporas g"^{-1}*
+      " de suelo)"
+    ),
+    y = "Colonización micorrízica (%)",
+    fill = "Grupo",
+    shape = "Grupo"
+  ) +
+
+  # Diseño científico
+  theme_classic(base_size = 12) +
+
+  theme(
+    plot.title = element_text(
+      size = 13,
+      face = "bold",
+      hjust = 0.5
+    ),
+
+    plot.subtitle = element_text(
+      size = 11,
+      hjust = 0.5,
+      color = "gray35",
+      margin = margin(b = 14)
+    ),
+
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+
+    legend.position = "top",
+    legend.direction = "horizontal",
+    legend.title = element_blank(),
+
+    panel.grid.major.y = element_line(
+      color = "gray90",
+      linewidth = 0.3
+    ),
+
+    plot.margin = margin(12, 15, 12, 12)
+  )
+
+fig_correlacion_final
+
+```
+
