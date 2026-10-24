@@ -996,6 +996,7 @@ tabla_taxon <- datos_alfa %>%
     .groups = "drop"
   )
 ```
+
 # 2 CREAR MATRIZ DE ABUNDANCIAS
 Filas = accesiones
 Columnas = taxones
@@ -1009,6 +1010,22 @@ matriz_taxon <- tabla_taxon %>%
   ) %>%
   column_to_rownames("accesion") %>%
   as.matrix()
+
+# Dimensiones: accesiones × taxones
+dim(matriz_taxon)
+
+# Número de accesiones por grupo
+table(metadata$grupo)
+
+# Accesiones con abundancia total igual a cero
+sum(rowSums(matriz_taxon) == 0)
+
+# Verificar correspondencia con metadatos
+all(rownames(matriz_taxon) == metadata$accesion)
+
+# Verificar cantidades faltantes en la base original
+sum(is.na(datos_alfa$cantidad))
+
 ```
 # 3 CREAR METADATOS DE LAS ACCESIONES
 ```{r}
