@@ -26,8 +26,9 @@ library(dplyr)
 library(ggplot2)
 library(readxl)
 library(patchwork)
-
-
+library(tidyverse)
+library(readxl)
+library(vegan)
 ```
 
 
@@ -966,3 +967,593 @@ ggsave(
 
 
 El coeficiente de correlación de Spearman entre la densidad de esporas y la colonización micorrízica, no se evidenció una asociación significativa entre ambas variables (ρ = -0.019; p = 0.912). De manera similar, al analizar los grupos por separado, tampoco se observaron correlaciones significativas en CA (ρ = 0.022; p = 0.943) ni en CT (ρ = -0.219; p = 0.329). Estos resultados indican que, en las accesiones evaluadas, una mayor densidad de esporas no estuvo asociada con un mayor porcentaje de colonización micorrízica.
+
+#Analisis de diversidad (DIVERSIDAD ALFA)
+# CARGAR BASE DE DATOS
+
+```{r}
+
+datos_alfa <- read_excel("data/base de datos ordenada para procesar.xlsx", 
+    sheet = "fb")
+
+# Revisar estructura
+str(datos_alfa)
+
+
+datos_alfa <- datos_alfa %>%
+  mutate(
+    taxon = paste(genero, especie)
+  )
+```
+
+#1. SUMAR ABUNDANCIA POR ACCESIÓN Y TAXÓN
+
+```{r}
+tabla_taxon <- datos_alfa %>%
+  group_by(accesion, taxon) %>%
+  summarise(
+    abundancia = sum(cantidad, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+# 2 CREAR MATRIZ DE ABUNDANCIAS
+Filas = accesiones
+Columnas = taxones
+
+```{r}
+matriz_taxon <- tabla_taxon %>%
+  pivot_wider(
+    names_from = taxon,
+    values_from = abundancia,
+    values_fill = 0
+  ) %>%
+  column_to_rownames("accesion") %>%
+  as.matrix()
+```
+# 3 CREAR METADATOS DE LAS ACCESIONES
+```{r}
+metadata <- datos_alfa %>%
+  distinct(accesion, grupo)
+
+metadata <- metadata[
+  match(
+    rownames(matriz_taxon),
+    metadata$accesion
+  ),
+]
+
+# Verificar correspondencia
+all(
+  rownames(matriz_taxon) ==
+    metadata$accesion
+)
+```
+# 4.CALCULAR ABUNDANCIA TOTAL
+```{r}
+abundancia_total <- rowSums(
+  matriz_taxon,
+  na.rm = TRUE
+)
+```
+# 5. CALCULAR RIQUEZA DE TAXONES
+
+```{r}
+riqueza <- specnumber(
+  matriz_taxon
+)
+```
+# 6. CALCULAR ÍNDICE DE SHANNON
+
+```{r}
+shannon <- diversity(
+  matriz_taxon,
+  index = "shannon"
+)
+```
+
+# 7. CALCULAR ÍNDICE DE SIMPSON
+# vegan devuelve 1 - D
+```{r}
+simpson <- diversity(
+  matriz_taxon,
+  index = "simpson"
+)
+```
+
+# 8. CREAR TABLA FINAL DE DIVERSIDAD ALFA
+```{r}
+diversidad_alfa <- data.frame(
+  accesion = rownames(matriz_taxon),
+  grupo = metadata$grupo,
+  abundancia_total = abundancia_total,
+  riqueza = riqueza,
+  shannon = shannon,
+  simpson = simpson
+)
+
+diversidad_alfa
+```
+
+# =========================================================
+# 9.RESUMEN DE DIVERSIDAD POR GRUPO
+# =========================================================
+```{r}
+resumen_diversidad <- diversidad_alfa %>%
+  group_by(grupo) %>%
+  summarise(
+    n = n(),
+
+    riqueza_media = mean(
+      riqueza,
+      na.rm = TRUE
+    ),
+    riqueza_sd = sd(
+      riqueza,
+      na.rm = TRUE
+    ),
+
+    shannon_media = mean(
+      shannon,
+      na.rm = TRUE
+    ),
+    shannon_sd = sd(
+      shannon,
+      na.rm = TRUE
+    ),
+
+    simpson_media = mean(
+      simpson,
+      na.rm = TRUE
+    ),
+    simpson_sd = sd(
+      simpson,
+      na.rm = TRUE
+    ),
+
+    abundancia_media = mean(
+      abundancia_total,
+      na.rm = TRUE
+    ),
+    abundancia_sd = sd(
+      abundancia_total,
+      na.rm = TRUE
+    ),
+
+    .groups = "drop"
+  )
+
+print(resumen_diversidad)
+
+```
+
+# 10. BOXPLOT DE RIQUEZA
+```{r}
+fig_riqueza <- ggplot(
+  diversidad_alfa,
+  aes(
+    x = grupo,
+    y = riqueza,
+    fill = grupo
+  )
+) +
+  geom_boxplot(
+    width = 0.55,
+    alpha = 0.7,
+    outlier.shape = NA
+  ) +
+  geom_jitter(
+    width = 0.10,
+    size = 2
+  ) +
+  labs(
+    x = "Grupo",
+    y = "Riqueza de taxones",
+    title = "Riqueza de HMA entre grupos CA y CT"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none"
+  )
+
+fig_riqueza
+
+```
+
+# =========================================================
+# 11. BOXPLOT DE SHANNON
+# =========================================================
+
+```{r}
+fig_shannon <- ggplot(
+  diversidad_alfa,
+  aes(
+    x = grupo,
+    y = shannon,
+    fill = grupo
+  )
+) +
+  geom_boxplot(
+    width = 0.55,
+    alpha = 0.7,
+    outlier.shape = NA
+  ) +
+  geom_jitter(
+    width = 0.10,
+    size = 2
+  ) +
+  labs(
+    x = "Grupo",
+    y = "Índice de Shannon (H')",
+    title = "Diversidad de Shannon de HMA entre grupos CA y CT"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none"
+  )
+
+fig_shannon
+```
+
+# =========================================================
+# 12. BOXPLOT DE SIMPSON
+# =========================================================
+```{r}
+fig_simpson <- ggplot(
+  diversidad_alfa,
+  aes(
+    x = grupo,
+    y = simpson,
+    fill = grupo
+  )
+) +
+  geom_boxplot(
+    width = 0.55,
+    alpha = 0.7,
+    outlier.shape = NA
+  ) +
+  geom_jitter(
+    width = 0.10,
+    size = 2
+  ) +
+  labs(
+    x = "Grupo",
+    y = "Índice de Simpson (1 - D)",
+    title = "Diversidad de Simpson de HMA entre grupos CA y CT"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none"
+  )
+
+fig_simpson
+
+```
+
+# 13. NORMALIDAD POR GRUPO
+# SHAPIRO-WILK
+```{r}
+normalidad <- diversidad_alfa %>%
+  group_by(grupo) %>%
+  summarise(
+    p_riqueza =
+      shapiro.test(riqueza)$p.value,
+
+    p_shannon =
+      shapiro.test(shannon)$p.value,
+
+    p_simpson =
+      shapiro.test(simpson)$p.value,
+
+    .groups = "drop"
+  )
+
+print(normalidad)
+
+```
+# 14. COMPARACIÓN CA vs CT
+# MANN-WHITNEY
+```{r}
+mw_riqueza <- wilcox.test(
+  riqueza ~ grupo,
+  data = diversidad_alfa,
+  exact = FALSE
+)
+
+mw_shannon <- wilcox.test(
+  shannon ~ grupo,
+  data = diversidad_alfa,
+  exact = FALSE
+)
+
+mw_simpson <- wilcox.test(
+  simpson ~ grupo,
+  data = diversidad_alfa,
+  exact = FALSE
+)
+
+mw_riqueza
+mw_shannon
+mw_simpson
+
+
+```
+
+# 15. MEDIDAS DESCRIPTIVAS FINALES
+```{r}
+resumen_final <- diversidad_alfa %>%
+  group_by(grupo) %>%
+  summarise(
+    n = n(),
+
+    riqueza_mediana =
+      median(riqueza, na.rm = TRUE),
+
+    shannon_mediana =
+      median(shannon, na.rm = TRUE),
+
+    simpson_mediana =
+      median(simpson, na.rm = TRUE),
+
+    riqueza_media =
+      mean(riqueza, na.rm = TRUE),
+
+    shannon_media =
+      mean(shannon, na.rm = TRUE),
+
+    simpson_media =
+      mean(simpson, na.rm = TRUE),
+
+    .groups = "drop"
+  )
+
+print(
+  resumen_final,
+  width = Inf
+)
+```
+
+# 3. CREAR IDENTIFICADOR DEL TAXÓN
+```{r}
+datos_alfa <- datos_alfa %>%
+  mutate(
+    taxon = paste(genero, especie)
+  )
+
+```
+
+# 4. SUMAR ABUNDANCIA POR ACCESIÓN Y TAXÓN
+```{r}
+tabla_taxon <- datos_alfa %>%
+  group_by(accesion, taxon) %>%
+  summarise(
+    abundancia = sum(cantidad),
+    .groups = "drop"
+  )
+
+```
+# 5. CREAR MATRIZ ACCESIÓN × TAXÓN
+```{r}
+matriz_taxon <- tabla_taxon %>%
+  pivot_wider(
+    names_from = taxon,
+    values_from = abundancia,
+    values_fill = 0
+  ) %>%
+  column_to_rownames("accesion") %>%
+  as.matrix()
+```
+# 6. CREAR METADATOS
+```{r}
+metadata <- datos_alfa %>%
+  distinct(accesion, grupo)
+
+metadata <- metadata[
+  match(rownames(matriz_taxon), metadata$accesion),
+]
+
+```
+
+# 7. CALCULAR ABUNDANCIA RELATIVA
+```{r}
+matriz_rel <- matriz_taxon / rowSums(matriz_taxon)
+```
+# 8. CALCULAR DISTANCIA BRAY-CURTIS
+```{r}
+dist_bray <- vegdist(
+  matriz_rel,
+  method = "bray"
+)
+
+```
+
+# 9. REALIZAR PCoA
+```{r}
+pcoa <- cmdscale(
+  dist_bray,
+  eig = TRUE,
+  k = 2,
+  add = TRUE
+)
+```
+
+# 10. CALCULAR VARIACIÓN EXPLICADA
+```{r}
+var_exp <- pcoa$eig[pcoa$eig > 0] /
+  sum(pcoa$eig[pcoa$eig > 0]) * 100
+
+```
+
+# 11. CREAR TABLA PARA GRAFICAR
+```{r}
+pcoa_df <- data.frame(
+  accesion = rownames(pcoa$points),
+  PCoA1 = pcoa$points[, 1],
+  PCoA2 = pcoa$points[, 2]
+) %>%
+  left_join(
+    metadata,
+    by = "accesion"
+  )
+print(var_exp[1:2])
+
+```
+
+
+# 13. GRAFICAR PCoA
+```{r}
+ggplot(
+  pcoa_df,
+  aes(
+    x = PCoA1,
+    y = PCoA2,
+    color = grupo
+  )
+) +
+  geom_point(
+    size = 3,
+    alpha = 0.85
+  ) +
+  labs(
+    x = paste0(
+      "PCoA1 (",
+      round(var_exp[1], 1),
+      "%)"
+    ),
+    y = paste0(
+      "PCoA2 (",
+      round(var_exp[2], 1),
+      "%)"
+    ),
+    color = "Grupo",
+    title = "PCoA de la composición de HMA entre accesiones"
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(
+      hjust = 0.5,
+      face = "bold"
+    )
+  )
+```
+
+# =========================================================
+# PERMANOVA - COMPOSICIÓN DE HMA ENTRE CA Y CT
+# =========================================================
+```{r}
+permanova <- adonis2(
+  dist_bray ~ grupo,
+  data = metadata,
+  permutations = 999
+)
+
+print(permanova)
+```
+
+# =========================================================
+# PERMDISP - HOMOGENEIDAD DE DISPERSIONES
+# =========================================================
+```{r}
+dispersion <- betadisper(
+  dist_bray,
+  group = metadata$grupo
+)
+
+anova(dispersion)
+
+permutest(
+  dispersion,
+  permutations = 999
+)
+
+```
+
+# =========================================================
+# SIMPER
+# TAXONES QUE MÁS CONTRIBUYEN A LA DIFERENCIA ENTRE CA Y CT
+# =========================================================
+```{r}
+simper_result <- simper(
+  matriz_rel,
+  group = metadata$grupo,
+  permutations = 999
+)
+
+summary(simper_result)
+```
+
+# =========================================================
+# SIMPER - TAXONES QUE EXPLICAN LA DISIMILITUD CA vs CT
+# =========================================================
+```{r}
+simper_result <- simper(
+  matriz_rel,
+  group = metadata$grupo,
+  permutations = 999
+)
+
+```
+# Resumen de la comparación CA vs CT
+```{r}
+simper_CA_CT <- summary(simper_result)$CA_CT
+
+tabla_simper <- as.data.frame(simper_CA_CT)
+
+tabla_simper$taxon <- rownames(tabla_simper)
+
+tabla_simper <- tabla_simper %>%
+  select(
+    taxon,
+    average,
+    sd,
+    ratio,
+    ava,
+    avb,
+    cumsum,
+    p
+  )
+
+View(tabla_simper)
+
+n_70 <- which(tabla_simper$cumsum >= 0.70)[1]
+
+simper_70 <- tabla_simper[1:n_70, ]
+
+print(simper_70)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
