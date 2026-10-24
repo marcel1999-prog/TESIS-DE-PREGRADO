@@ -129,6 +129,14 @@ mann_whitney
 # 7. BOXPLOT CA vs CT
 
 ```{r}
+colores_grupo <- c(
+  "CA" = "#1F78B4",
+  "CT" = "#E66101"
+)
+```
+
+
+```{r}
 
 p_valor <- mann_whitney$p.value
 
@@ -954,6 +962,7 @@ ggsave(
 # )
 
 ```
+
 
 
 El coeficiente de correlación de Spearman entre la densidad de esporas y la colonización micorrízica, no se evidenció una asociación significativa entre ambas variables (ρ = -0.019; p = 0.912). De manera similar, al analizar los grupos por separado, tampoco se observaron correlaciones significativas en CA (ρ = 0.022; p = 0.943) ni en CT (ρ = -0.219; p = 0.329). Estos resultados indican que, en las accesiones evaluadas, una mayor densidad de esporas no estuvo asociada con un mayor porcentaje de colonización micorrízica.
