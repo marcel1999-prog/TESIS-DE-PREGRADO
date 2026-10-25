@@ -1,0 +1,1107 @@
+---
+title: "Hongos micorrízicos arbusculares en germoplasma de cucurbitáceas"
+subtitle: "Análisis de esporas, diversidad y composición de HMA"
+lang: es
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: false
+    fig-align: center
+execute:
+  echo: true
+  message: false
+  warning: true
+  error: false
+editor_options:
+  chunk_output_type: console
+---
+
+# Configuración
+
+## Paquetes, rutas y estilo
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(vegan)
+library(cowplot)
+library(pheatmap)
+library(grid)
+
+archivos <- list(
+  densidad = "data/densidad de esporas procesar.xlsx",
+  colonizacion = "data/base_datos_tincion.xlsx",
+  taxones = "data/base de datos ordenada para procesar.xlsx"
+)
+
+carpetas <- list(
+  tesis = "manuscript/Figuras_Tesis",
+  articulo = "manuscript/Figuras_Articulo",
+  suplementarias = "manuscript/Suplementarias_Articulo",
+  tablas_tesis = "manuscript/Tablas_Tesis",
+  tablas_suplementarias = "manuscript/Tablas_Suplementarias_Articulo",
+  analisis = "manuscript/Analisis_y_Auditoria",
+  paneles = "manuscript/Paneles_Individuales"
+)
+
+invisible(lapply(carpetas, dir.create, recursive = TRUE, showWarnings = FALSE))
+stopifnot(all(file.exists(unlist(archivos))))
+
+masa_suelo_g <- 6  # Masa de suelo confirmada con los registros de laboratorio
+colores_grupo <- c(CA = "#1F78B4", CT = "#E66101")
+set.seed(123)
+
+tema_publicacion <- function() {
+  theme_classic(base_size = 10) +
+    theme(
+      axis.title = element_text(size = 10, colour = "black"),
+      axis.text = element_text(size = 9, colour = "black"),
+      legend.title = element_text(size = 9),
+      legend.text = element_text(size = 9),
+      legend.position = "top",
+      strip.background = element_blank(),
+      strip.text = element_text(size = 10, face = "bold"),
+      plot.margin = margin(14, 16, 13, 16)
+    )
+}
+
+formato_p <- function(p) {
+  if (is.na(p)) return("p = NA")
+  if (p < 0.001) return("p < 0,001")
+  paste0("p = ", formatC(p, digits = 3, format = "f", decimal.mark = ","))
+}
+
+crear_panel <- function(grafico, letra, ancho_letra = 0.045) {
+
+  panel_letra <- cowplot::ggdraw() +
+    cowplot::draw_label(
+      letra,
+      x = 0.95,
+      y = 0.995,
+      hjust = 1,
+      vjust = 1,
+      fontface = "bold",
+      size = 11
+    )
+
+  cowplot::plot_grid(
+    panel_letra,
+    grafico,
+    ncol = 2,
+    rel_widths = c(ancho_letra, 1 - ancho_letra)
+  )
+}
+
+margen_compuesto <- function(figura, lateral = 0.025, vertical = 0.035) {
+  cowplot::ggdraw() +
+    cowplot::draw_plot(
+      figura, x = lateral, y = vertical,
+      width = 1 - 2 * lateral, height = 1 - 2 * vertical
+    )
+}
+
+guardar_figura <- function(figura, destino, nombre, ancho_cm, alto_cm,
+                           formatos = c("png"), dpi = 600) {
+  ruta <- file.path(carpetas[[destino]], nombre)
+
+  for (formato in formatos) {
+    argumentos <- list(
+      filename = paste0(ruta, ".", formato), plot = figura,
+      width = ancho_cm, height = alto_cm, units = "cm",
+      bg = "white", limitsize = FALSE
+    )
+    if (formato %in% c("png", "tiff")) argumentos$dpi <- dpi
+    if (formato == "tiff") argumentos$compression <- "lzw"
+    do.call(ggsave, argumentos)
+  }
+  invisible(ruta)
+}
+
+exportar_tabla <- function(tabla, carpeta, nombre) {
+
+  ruta <- file.path(
+    carpetas[[carpeta]],
+    paste0(nombre, ".xlsx")
+  )
+
+  writexl::write_xlsx(
+    as.data.frame(tabla),
+    path = ruta
+  )
+
+  invisible(ruta)
+}
+
+# exportar_tabla <- function(tabla, carpeta, nombre) {
+#   readr::write_csv(tabla, file.path(carpetas[[carpeta]], paste0(nombre, ".xls")))
+#   invisible(NULL)
+# }
+
+```
+
+
+# Importación y verificación de datos
+
+## Esporas y colonización radicular
+
+```{r}
+datos <- read_excel(archivos$densidad, sheet = "Total_por_accesion") %>%
+  transmute(
+    Accesión = str_trim(as.character(Accesión)),
+    Grupo = factor(str_to_upper(str_trim(as.character(Grupo))), levels = c("CA", "CT")),
+    Total_esporas = as.numeric(`Total de esporas`),
+    Densidad_esporas_g = Total_esporas / masa_suelo_g
+  )
+
+colonizacion_original <- read_excel(archivos$colonizacion, sheet = "fb") %>%
+  transmute(
+    Accesión = str_remove_all(str_trim(as.character(muestra)), "_"),
+    repeticion = str_to_upper(str_trim(as.character(repeticion))),
+    porcentaje = as.numeric(porcentaje)
+  )
+
+accesiones_solo_colonizacion <- colonizacion_original %>%
+  distinct(Accesión) %>%
+  anti_join(datos %>% select(Accesión), by = "Accesión")
+
+colonizacion_lecturas <- colonizacion_original %>%
+  semi_join(datos, by = "Accesión")
+
+control_lecturas <- colonizacion_lecturas %>%
+  group_by(Accesión) %>%
+  summarise(
+    n_lecturas = n(),
+    n_validas = sum(!is.na(porcentaje)),
+    repeticiones_correctas = setequal(repeticion, c("R1", "R2", "R3")),
+    .groups = "drop"
+  )
+
+colonizacion_analisis <- colonizacion_lecturas %>%
+  group_by(Accesión) %>%
+  summarise(Colonizacion = mean(porcentaje, na.rm = TRUE), .groups = "drop") %>%
+  inner_join(datos %>% select(Accesión, Grupo), by = "Accesión")
+
+stopifnot(!anyNA(datos), !anyDuplicated(datos$Accesión))
+stopifnot(identical(as.integer(table(datos$Grupo)), c(13L, 22L)))
+stopifnot(nrow(colonizacion_analisis) == nrow(datos))
+stopifnot(nrow(control_lecturas %>% filter(n_lecturas != 3 | n_validas != 3 |
+                                              !repeticiones_correctas)) == 0)
+stopifnot(all(between(colonizacion_original$porcentaje, 0, 100)))
+
+# CT01 fue confirmado con 246 esporas; no alterar la lectura en memoria.
+# Si Excel conserva 218, corregir E15 en el archivo original y guardar.
+ct01_actual <- datos %>% filter(Accesión == "CT01") %>% pull(Total_esporas)
+if (length(ct01_actual) != 1L || ct01_actual != 246) {
+  stop("CT01 debe registrar 246 esporas en data/densidad de esporas procesar.xlsx (E15). Corrige y guarda el Excel antes de renderizar.")
+}
+
+print(datos %>% count(Grupo))
+print(accesiones_solo_colonizacion)
+print(control_lecturas %>% filter(n_lecturas != 3 | n_validas != 3 | !repeticiones_correctas))
+print(anti_join(datos, colonizacion_analisis, by = "Accesión"))
+```
+
+## Taxones y matriz de abundancias
+
+```{r}
+datos_taxones <- read_excel(archivos$taxones, sheet = "fb") %>%
+  transmute(
+    accesion = str_trim(as.character(accesion)),
+    grupo = str_to_upper(str_trim(as.character(grupo))),
+    provincia = str_squish(as.character(provincia)),
+    distrito = str_squish(as.character(distrito)),
+    genero = str_squish(as.character(genero)),
+    especie = str_squish(as.character(especie)),
+    taxon = str_squish(paste(genero, especie)),
+    cantidad = as.numeric(cantidad)
+  ) %>%
+  filter(grupo %in% c("CA", "CT"))
+
+stopifnot(!anyNA(datos_taxones[, c("accesion", "grupo", "taxon", "cantidad")]))
+stopifnot(all(datos_taxones$cantidad >= 0))
+stopifnot(all(datos_taxones$cantidad == round(datos_taxones$cantidad)))
+stopifnot(!anyDuplicated(datos$Accesión))
+stopifnot(all((datos_taxones %>% distinct(accesion, grupo) %>% count(accesion))$n == 1))
+
+metadata <- datos_taxones %>% distinct(accesion, grupo, provincia, distrito)
+stopifnot(!anyDuplicated(metadata$accesion))
+stopifnot(setequal(metadata$accesion, datos$Accesión))
+
+control_grupos <- metadata %>%
+  inner_join(datos %>% transmute(accesion = Accesión, grupo_densidad = as.character(Grupo)), by = "accesion") %>%
+  filter(grupo != grupo_densidad)
+stopifnot(nrow(control_grupos) == 0)
+
+matriz_taxon <- datos_taxones %>%
+  group_by(accesion, taxon) %>%
+  summarise(abundancia = sum(cantidad), .groups = "drop") %>%
+  pivot_wider(names_from = taxon, values_from = abundancia, values_fill = 0) %>%
+  column_to_rownames("accesion") %>%
+  as.matrix()
+
+metadata <- metadata[match(rownames(matriz_taxon), metadata$accesion), , drop = FALSE]
+stopifnot(identical(rownames(matriz_taxon), metadata$accesion))
+stopifnot(all(rowSums(matriz_taxon) > 0))
+
+control_conteos <- tibble(
+  Accesión = rownames(matriz_taxon),
+  esporas_taxones = as.numeric(rowSums(matriz_taxon))
+) %>%
+  left_join(datos %>% select(Accesión, Total_esporas), by = "Accesión") %>%
+  mutate(diferencia = esporas_taxones - Total_esporas)
+
+print(dim(matriz_taxon))
+discrepancias <- control_conteos %>% filter(is.na(diferencia) | diferencia != 0)
+print(discrepancias)
+exportar_tabla(control_conteos, "analisis", "Auditoria_Conteos")
+if (nrow(discrepancias) > 0) {
+  stop("Persisten diferencias entre totales taxonómicos y densidad. Revisar Auditoria_Conteos.csv antes de continuar.")
+}
+
+cat("Muestreo por procedencia y grupo:\n")
+print(metadata %>% count(provincia, distrito, grupo))
+```
+
+# Densidad de esporas y colonización
+
+## Diagnósticos y selección de pruebas
+
+Se comprueban normalidad por grupo, dispersión y residuos mediante Shapiro-Wilk, Fligner-Killeen y gráficos Q-Q. Estos diagnósticos orientan la interpretación, no constituyen un algoritmo automático de selección por valores p. Densidad: Mann-Whitney como contraste principal y Welch con `log1p` como sensibilidad. Colonización: t de Welch principal y Mann-Whitney como sensibilidad.
+
+```{r}
+datos_diagnostico <- bind_rows(
+  datos %>% transmute(Grupo, variable = "Densidad", valor = Densidad_esporas_g),
+  colonizacion_analisis %>% transmute(Grupo, variable = "Colonización", valor = Colonizacion)
+)
+
+resumen_diagnostico <- datos_diagnostico %>%
+  group_by(variable, Grupo) %>%
+  summarise(n = n(), media = mean(valor), de = sd(valor),
+            mediana = median(valor), Q1 = quantile(valor, 0.25),
+            Q3 = quantile(valor, 0.75), minimo = min(valor),
+            maximo = max(valor), .groups = "drop")
+
+normalidad_indicadores <- datos_diagnostico %>%
+  group_by(variable, Grupo) %>%
+  summarise(W = unname(shapiro.test(valor)$statistic),
+            p_shapiro = shapiro.test(valor)$p.value, .groups = "drop")
+
+dispersion_univariada <- datos_diagnostico %>%
+  group_by(variable) %>%
+  group_modify(~ {
+    p <- fligner.test(valor ~ Grupo, data = .x)
+    tibble(estadistico = unname(p$statistic), p_fligner = p$p.value)
+  }) %>% ungroup()
+
+modelo_densidad <- lm(Densidad_esporas_g ~ Grupo, data = datos)
+modelo_colonizacion <- lm(Colonizacion ~ Grupo, data = colonizacion_analisis)
+normalidad_residuos <- tibble(
+  variable = c("Densidad", "Colonización"),
+  W = c(unname(shapiro.test(residuals(modelo_densidad))$statistic),
+        unname(shapiro.test(residuals(modelo_colonizacion))$statistic)),
+  p_shapiro = c(shapiro.test(residuals(modelo_densidad))$p.value,
+                shapiro.test(residuals(modelo_colonizacion))$p.value)
+)
+
+print(resumen_diagnostico)
+print(normalidad_indicadores)
+print(dispersion_univariada)
+print(normalidad_residuos)
+```
+
+```{r}
+#| label: fig-diagnosticos-univariados
+#| fig-cap: "Diagnóstico exploratorio de la distribución de densidad y colonización por grupo (Q-Q)."
+#| fig-width: 9
+#| fig-height: 6
+fig_qq_indicadores <- ggplot(datos_diagnostico, aes(sample = valor)) +
+  stat_qq(size = 1.3, alpha = 0.8) +
+  stat_qq_line(colour = "#B2182B") +
+  facet_grid(variable ~ Grupo, scales = "free") +
+  labs(x = "Cuantiles teóricos", y = "Cuantiles observados") +
+  theme_bw(base_size = 10)
+fig_qq_indicadores
+```
+
+```{r}
+#| label: fig-diagnostico-residuos
+#| fig-cap: "Diagnóstico Q-Q de los residuos de los modelos lineales exploratorios."
+#| fig-width: 9
+#| fig-height: 4.5
+residuos_qq <- bind_rows(
+  tibble(variable = "Densidad", residuo = residuals(modelo_densidad)),
+  tibble(variable = "Colonización", residuo = residuals(modelo_colonizacion))
+)
+fig_qq_residuos <- ggplot(residuos_qq, aes(sample = residuo)) +
+  stat_qq(size = 1.3) + stat_qq_line(colour = "#B2182B") +
+  facet_wrap(~ variable, scales = "free") +
+  labs(x = "Cuantiles teóricos", y = "Cuantiles de residuos") +
+  theme_bw(base_size = 10)
+fig_qq_residuos
+```
+
+## Descripción y comparación entre grupos
+
+```{r}
+describir_grupo <- function(base, variable) {
+  base %>%
+    group_by(Grupo) %>%
+    summarise(
+      n = sum(!is.na(.data[[variable]])),
+      media = mean(.data[[variable]], na.rm = TRUE),
+      de = sd(.data[[variable]], na.rm = TRUE),
+      mediana = median(.data[[variable]], na.rm = TRUE),
+      minimo = min(.data[[variable]], na.rm = TRUE),
+      maximo = max(.data[[variable]], na.rm = TRUE),
+      .groups = "drop"
+    )
+}
+
+resumen_densidad <- describir_grupo(datos, "Densidad_esporas_g")
+resumen_colonizacion <- describir_grupo(colonizacion_analisis, "Colonizacion")
+
+mann_whitney <- wilcox.test(Densidad_esporas_g ~ Grupo, data = datos, exact = FALSE)
+comparacion_col <- t.test(Colonizacion ~ Grupo, data = colonizacion_analisis)
+
+# Análisis de sensibilidad: transformaciones y prueba alternativa.
+prueba_densidad_log <- t.test(log1p(Densidad_esporas_g) ~ Grupo, data = datos)
+prueba_colonizacion_mw <- wilcox.test(Colonizacion ~ Grupo,
+                                    data = colonizacion_analisis, exact = FALSE)
+comparacion_sensibilidad <- tibble(
+  variable = c("Densidad", "Densidad", "Colonización", "Colonización"),
+  prueba = c("Mann-Whitney", "Welch sobre log1p", "Welch", "Mann-Whitney"),
+  p = c(mann_whitney$p.value, prueba_densidad_log$p.value,
+        comparacion_col$p.value, prueba_colonizacion_mw$p.value)
+)
+
+resumen_densidad
+resumen_colonizacion
+comparacion_sensibilidad
+mann_whitney
+comparacion_col
+```
+
+## Figura T1 / A1. Densidad y colonización
+
+```{r}
+#| label: fig-densidad-colonizacion
+#| fig-cap: "Densidad de esporas (a) y colonización micorrízica (b). Cada punto representa una accesión; CA (n = 13) y CT (n = 22)."
+#| fig-width: 8.2
+#| fig-height: 4.5
+crear_boxplot <- function(base, variable, etiqueta_y, prueba, eje_y = NULL) {
+  p <- ggplot(base, aes(x = Grupo, y = .data[[variable]], fill = Grupo)) +
+    geom_boxplot(width = 0.55, alpha = 0.85, colour = "black",
+                 linewidth = 0.3, outlier.shape = NA) +
+    geom_jitter(width = 0.1, height = 0, size = 1.6, alpha = 0.85,
+                colour = "gray20") +
+    annotate("text", x = Inf, y = Inf, label = prueba,
+             hjust = 1.05, vjust = 1.45, size = 3) +
+    scale_fill_manual(values = colores_grupo) +
+    labs(x = "Grupo", y = etiqueta_y) +
+    tema_publicacion() +
+    theme(legend.position = "none")
+  if (is.null(eje_y)) {
+    p + scale_y_continuous(expand = expansion(mult = c(0.03, 0.23)))
+  } else {
+    p + scale_y_continuous(breaks = seq(0, 100, 20)) +
+      coord_cartesian(ylim = eje_y)
+  }
+}
+
+fig_densidad <- crear_boxplot(
+  datos, "Densidad_esporas_g",
+  "Densidad (esporas/g de suelo)",
+  paste("Mann-Whitney:", formato_p(mann_whitney$p.value))
+)
+fig_colonizacion <- crear_boxplot(
+  colonizacion_analisis, "Colonizacion",
+  "Colonización micorrízica (%)",
+  paste("t de Welch:", formato_p(comparacion_col$p.value)),
+  eje_y = c(0, 110)
+)
+
+graficos_t1 <- cowplot::align_plots(
+  fig_densidad, fig_colonizacion,
+  align = "hv", axis = "tblr"
+)
+
+panel_t1a <- crear_panel(graficos_t1[[1]], "(a)")
+panel_t1b <- crear_panel(graficos_t1[[2]], "(b)")
+
+fig_t1 <- cowplot::plot_grid(
+  panel_t1a, panel_t1b,
+  ncol = 2, rel_widths = c(1, 1)
+) %>% margen_compuesto()
+
+fig_t1
+
+guardar_figura(fig_t1, "tesis", "T01_Densidad_Colonizacion", 19.5, 10.2)
+guardar_figura(fig_t1, "articulo", "A01_Densidad_Colonizacion", 18.4, 9.8)
+guardar_figura(fig_densidad, "paneles", "T01a_Densidad", 9.2, 9.0)
+guardar_figura(fig_colonizacion, "paneles", "T01b_Colonizacion", 9.2, 9.0)
+```
+
+## Figuras T2 y T3. Valores por accesión
+
+Las barras describen valores observados por accesión; **no se asignan letras de Tukey/Duncan** por ausencia de replicación biológica por accesión. Se usan escalas comparables entre CA y CT dentro de cada figura.
+
+```{r}
+#| label: fig-densidad-accesiones
+#| fig-cap: "Densidad de esporas por accesión; paneles CA y CT. Cada barra corresponde a una accesión."
+#| fig-width: 9
+#| fig-height: 7
+crear_barras_accesion <- function(base, variable, etiqueta_y, limite_y = NULL) {
+  base <- base %>%
+    mutate(Accesión = factor(Accesión, levels = sort(unique(Accesión))))
+  p <- ggplot(base, aes(x = Accesión, y = .data[[variable]], fill = Grupo)) +
+    geom_col(width = 0.75, colour = "black", linewidth = 0.15) +
+    facet_wrap(~ Grupo, ncol = 1, scales = "free_x") +
+    scale_fill_manual(values = colores_grupo) +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.08))) +
+    labs(x = "Accesión", y = etiqueta_y) +
+    tema_publicacion() +
+    theme(legend.position = "none",
+          strip.placement = "outside",
+          strip.text.y = element_text(angle = 0),
+          axis.text.x = element_text(angle = 60, hjust = 1, size = 7))
+  if (!is.null(limite_y)) p <- p + coord_cartesian(ylim = limite_y)
+  p
+}
+
+fig_t2 <- crear_barras_accesion(datos, "Densidad_esporas_g",
+                               "Densidad (esporas/g de suelo)")
+fig_t2
+guardar_figura(fig_t2, "tesis", "T02_Densidad_por_Accesion", 19, 15.5)
+```
+
+```{r}
+#| label: fig-colonizacion-accesiones
+#| fig-cap: "Porcentaje de colonización micorrízica por accesión; paneles CA y CT. Cada barra corresponde a una accesión."
+#| fig-width: 9
+#| fig-height: 7
+fig_t3 <- crear_barras_accesion(colonizacion_analisis, "Colonizacion",
+                               "Colonización micorrízica (%)", limite_y = c(0, 100))
+fig_t3
+guardar_figura(fig_t3, "tesis", "T03_Colonizacion_por_Accesion", 19, 15.5)
+```
+
+## Figura T4 / S2. Asociación densidad–colonización
+
+```{r}
+#| label: fig-correlacion
+#| fig-cap: "Relación entre densidad de esporas y colonización micorrízica. Se informa la correlación de Spearman general y por grupo."
+#| fig-width: 7
+#| fig-height: 5.5
+datos_cor <- datos %>%
+  select(Accesión, Grupo, Densidad_esporas_g) %>%
+  inner_join(colonizacion_analisis %>% select(Accesión, Colonizacion), by = "Accesión")
+
+estimar_spearman <- function(base, nombre) {
+  prueba <- cor.test(base$Densidad_esporas_g, base$Colonizacion,
+                     method = "spearman", exact = FALSE)
+  tibble(grupo = nombre, n = nrow(base), rho = unname(prueba$estimate), p = prueba$p.value)
+}
+
+resultados_cor <- bind_rows(
+  estimar_spearman(datos_cor, "General"),
+  estimar_spearman(filter(datos_cor, Grupo == "CA"), "CA"),
+  estimar_spearman(filter(datos_cor, Grupo == "CT"), "CT")
+)
+
+etiqueta_cor <- paste0(
+  resultados_cor$grupo, ": rho = ", sprintf("%.3f", resultados_cor$rho),
+  "; ", vapply(resultados_cor$p, formato_p, character(1)),
+  collapse = "\n"
+)
+
+fig_t4 <- ggplot(datos_cor, aes(Densidad_esporas_g, Colonizacion, colour = Grupo)) +
+  geom_point(size = 2, alpha = 0.85) +
+  scale_colour_manual(values = colores_grupo) +
+  scale_y_continuous(breaks = seq(0, 100, 20)) +
+  coord_cartesian(ylim = c(0, 100)) +
+  annotate("text", x = Inf, y = Inf, label = etiqueta_cor,
+           hjust = 1.04, vjust = 1.1, size = 3) +
+  labs(x = "Densidad (esporas/g de suelo)",
+       y = "Colonización micorrízica (%)", colour = "Grupo") +
+  tema_publicacion()
+fig_t4
+guardar_figura(fig_t4, "tesis", "T04_Correlacion", 16, 12.5)
+guardar_figura(fig_t4, "suplementarias", "S02_Correlacion", 15, 11.5)
+```
+
+# Diversidad alfa
+
+## Índices, normalidad y contrastes CA–CT
+
+Riqueza observada (número de taxones), Shannon (H') y Simpson (1 − D) se calculan a partir de la matriz de abundancias morfológicas. Se comparan CA y CT por Mann-Whitney y se ajustan los tres contrastes mediante Holm. Las pruebas no equivalen a comparaciones múltiples entre accesiones.
+
+```{r}
+diversidad_alfa <- tibble(
+  accesion = rownames(matriz_taxon),
+  riqueza = vegan::specnumber(matriz_taxon),
+  shannon = vegan::diversity(matriz_taxon, index = "shannon"),
+  simpson = vegan::diversity(matriz_taxon, index = "simpson"),
+  esporas_taxones = as.numeric(rowSums(matriz_taxon))
+) %>%
+  left_join(metadata, by = "accesion") %>%
+  mutate(grupo = factor(grupo, levels = c("CA", "CT")))
+
+stopifnot(identical(diversidad_alfa$accesion, metadata$accesion))
+
+resumen_alfa <- diversidad_alfa %>%
+  group_by(grupo) %>%
+  summarise(n = n(), across(c(riqueza, shannon, simpson),
+    list(media = mean, de = sd, mediana = median),
+    .names = "{.col}_{.fn}"), .groups = "drop")
+
+alfa_diagnostico <- diversidad_alfa %>%
+  select(grupo, riqueza, shannon, simpson) %>%
+  pivot_longer(cols = c(riqueza, shannon, simpson),
+               names_to = "indice", values_to = "valor")
+
+normalidad_alfa <- alfa_diagnostico %>%
+  group_by(indice, grupo) %>%
+  summarise(n = n(), W = unname(shapiro.test(valor)$statistic),
+            p_shapiro = shapiro.test(valor)$p.value, .groups = "drop")
+
+pruebas_alfa <- alfa_diagnostico %>%
+  group_by(indice) %>%
+  group_modify(~ {
+    prueba <- wilcox.test(valor ~ grupo, data = .x, exact = FALSE)
+    tibble(W = unname(prueba$statistic), p_sin_ajuste = prueba$p.value)
+  }) %>% ungroup() %>%
+  mutate(p_Holm = p.adjust(p_sin_ajuste, method = "holm"))
+
+p_holm <- setNames(pruebas_alfa$p_Holm, pruebas_alfa$indice)
+print(resumen_alfa)
+print(normalidad_alfa)
+print(pruebas_alfa)
+```
+
+```{r}
+#| label: fig-qq-diversidad-alfa
+#| fig-cap: "Gráficos Q-Q de los índices de diversidad alfa, separados por grupo."
+#| fig-width: 9
+#| fig-height: 7
+fig_qq_alfa <- ggplot(alfa_diagnostico, aes(sample = valor)) +
+  stat_qq(size = 1.3) + stat_qq_line(colour = "#B2182B") +
+  facet_grid(indice ~ grupo, scales = "free") +
+  labs(x = "Cuantiles teóricos", y = "Cuantiles observados") +
+  theme_bw(base_size = 10)
+fig_qq_alfa
+```
+
+## Esfuerzo de observación y análisis de sensibilidad
+
+La correlación riqueza–esporas y la rarefacción por conteos son diagnósticos complementarios; no reemplazan los tres índices observados de la figura principal. Un número mínimo positivo de 5 esporas por taxón no es, por sí solo, un error. La asociación en CA se contrasta adicionalmente sin el valor máximo **solo como sensibilidad**, no como exclusión del análisis principal.
+
+```{r}
+estimar_cor_riqueza <- function(base, etiqueta) {
+  prueba <- cor.test(base$esporas_taxones, base$riqueza,
+                     method = "spearman", exact = FALSE)
+  tibble(grupo = etiqueta, n = nrow(base),
+         rho = unname(prueba$estimate), p = prueba$p.value)
+}
+
+cor_riqueza <- bind_rows(
+  estimar_cor_riqueza(diversidad_alfa, "General"),
+  estimar_cor_riqueza(filter(diversidad_alfa, grupo == "CA"), "CA"),
+  estimar_cor_riqueza(filter(diversidad_alfa, grupo == "CT"), "CT")
+)
+p_ajustada_cor <- setNames(p.adjust(cor_riqueza$p[cor_riqueza$grupo %in% c("CA", "CT")],
+                                     method = "holm"), c("CA", "CT"))
+cor_riqueza$p_Holm_entre_grupos <- unname(p_ajustada_cor[cor_riqueza$grupo])
+
+ca_completo <- filter(diversidad_alfa, grupo == "CA")
+ca_max <- ca_completo %>% slice_max(esporas_taxones, n = 1, with_ties = FALSE)
+ca_sin_max <- ca_completo %>% filter(accesion != ca_max$accesion)
+sensibilidad_ca <- bind_rows(
+  estimar_cor_riqueza(ca_completo, "CA completo"),
+  estimar_cor_riqueza(ca_sin_max, paste0("CA sin ", ca_max$accesion))
+)
+
+n_comun <- min(rowSums(matriz_taxon))
+riqueza_raref <- vegan::rarefy(matriz_taxon, sample = n_comun)
+diversidad_alfa <- diversidad_alfa %>%
+  mutate(riqueza_raref = as.numeric(riqueza_raref))
+
+resumen_raref <- diversidad_alfa %>% group_by(grupo) %>%
+  summarise(n = n(), riqueza_media = mean(riqueza),
+            riqueza_rarefactada_media = mean(riqueza_raref), .groups = "drop")
+comparacion_raref <- wilcox.test(riqueza_raref ~ grupo,
+                                 data = diversidad_alfa, exact = FALSE)
+
+print(cor_riqueza)
+print(ca_max %>% select(accesion, esporas_taxones, riqueza))
+print(sensibilidad_ca)
+cat("Conteo mínimo común para rarefacción:", n_comun, "\n")
+print(resumen_raref)
+print(comparacion_raref)
+```
+
+```{r}
+#| label: fig-riqueza-esporas-diagnostico
+#| fig-cap: "Asociación exploratoria entre número de esporas identificadas y riqueza observada por accesión. Las rectas son descriptivas."
+#| fig-width: 7.5
+#| fig-height: 5.2
+fig_riqueza_esporas <- ggplot(diversidad_alfa,
+                              aes(esporas_taxones, riqueza, colour = grupo)) +
+  geom_point(size = 2.1) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.6) +
+  scale_colour_manual(values = colores_grupo) +
+  labs(x = "Número de esporas registradas", y = "Riqueza de taxones", colour = "Grupo") +
+  tema_publicacion()
+fig_riqueza_esporas
+```
+
+## Figura T5 / A2. Riqueza, Shannon y Simpson
+
+```{r}
+#| label: fig-diversidad-alfa
+#| fig-cap: "Diversidad alfa de HMA: riqueza (a), Shannon H' (b) y Simpson 1 - D (c). Las probabilidades de Mann-Whitney se ajustaron mediante Holm."
+#| fig-width: 8
+#| fig-height: 7.5
+
+fig_riqueza <- crear_boxplot(
+  diversidad_alfa %>% rename(Grupo = grupo),
+  "riqueza", "Riqueza de taxones",
+  formato_p(p_holm[["riqueza"]])
+)
+
+fig_shannon <- crear_boxplot(
+  diversidad_alfa %>% rename(Grupo = grupo),
+  "shannon", "Shannon (H')",
+  formato_p(p_holm[["shannon"]])
+)
+
+fig_simpson <- crear_boxplot(
+  diversidad_alfa %>% rename(Grupo = grupo),
+  "simpson", "Simpson (1 - D)",
+  formato_p(p_holm[["simpson"]])
+)
+
+graficos_t5 <- cowplot::align_plots(
+  fig_riqueza, fig_shannon, fig_simpson,
+  align = "hv", axis = "tblr"
+)
+
+panel_t5a <- crear_panel(graficos_t5[[1]], "(a)")
+panel_t5b <- crear_panel(graficos_t5[[2]], "(b)")
+panel_t5c <- crear_panel(graficos_t5[[3]], "(c)")
+
+fila_superior <- cowplot::plot_grid(
+  panel_t5a, panel_t5b,
+  ncol = 2, rel_widths = c(1, 1)
+)
+
+fila_inferior <- cowplot::plot_grid(
+  NULL, panel_t5c, NULL,
+  ncol = 3, rel_widths = c(0.5, 1, 0.5)
+)
+
+fig_t5 <- cowplot::plot_grid(
+  fila_superior, fila_inferior,
+  ncol = 1, rel_heights = c(1, 1)
+) %>% margen_compuesto(lateral = 0.03, vertical = 0.025)
+
+fig_t5
+
+guardar_figura(fig_t5, "tesis", "T05_Diversidad_Alfa", 18.8, 16.5)
+guardar_figura(fig_t5, "articulo", "A02_Diversidad_Alfa", 18.5, 16.2)
+guardar_figura(fig_riqueza, "paneles", "T05a_Riqueza", 9, 8.5)
+guardar_figura(fig_shannon, "paneles", "T05b_Shannon", 9, 8.5)
+guardar_figura(fig_simpson, "paneles", "T05c_Simpson", 9, 8.5)
+```
+
+## Figura T6 / S3. Acumulación de taxones
+
+```{r}
+#| label: fig-acumulacion
+#| fig-cap: "Curvas de acumulación de taxones por número de accesiones. Las bandas representan ±1 desviación estándar de las permutaciones aleatorias."
+#| fig-width: 7.5
+#| fig-height: 5.5
+acumular_grupo <- function(grupo_elegido) {
+  matriz <- matriz_taxon[metadata$grupo == grupo_elegido, , drop = FALSE]
+  estimacion <- vegan::specaccum(matriz > 0, method = "random", permutations = 999)
+  tibble(
+    grupo = grupo_elegido,
+    accesiones = estimacion$sites,
+    riqueza_esperada = estimacion$richness,
+    de = estimacion$sd
+  )
+}
+
+acumulacion <- bind_rows(acumular_grupo("CA"), acumular_grupo("CT"))
+
+fig_t6 <- ggplot(
+  acumulacion,
+  aes(accesiones, riqueza_esperada, colour = grupo, fill = grupo)
+) +
+  geom_ribbon(aes(ymin = pmax(0, riqueza_esperada - de),
+                  ymax = riqueza_esperada + de), alpha = 0.16, colour = NA) +
+  geom_line(linewidth = 0.75) +
+  geom_point(size = 1.3) +
+  scale_colour_manual(values = colores_grupo) +
+  scale_fill_manual(values = colores_grupo) +
+  scale_x_continuous(breaks = seq(0, max(acumulacion$accesiones), 2)) +
+  labs(x = "Número de accesiones", y = "Riqueza acumulada esperada",
+       colour = "Grupo", fill = "Grupo") +
+  tema_publicacion()
+fig_t6
+guardar_figura(fig_t6, "tesis", "T06_Acumulacion_Taxones", 17, 12)
+guardar_figura(fig_t6, "suplementarias", "S03_Acumulacion_Taxones", 15.5, 11.5)
+```
+
+# Composición y estructura de comunidades
+
+## Inventario taxonómico y taxones compartidos
+
+```{r}
+base_inventario <- as_tibble(matriz_taxon, rownames = "accesion") %>%
+  pivot_longer(-accesion, names_to = "taxon", values_to = "abundancia") %>%
+  left_join(metadata, by = "accesion")
+
+inventario_taxones <- base_inventario %>%
+  group_by(taxon) %>%
+  summarise(
+    total_esporas = sum(abundancia),
+    accesiones_CA = sum(grupo == "CA" & abundancia > 0),
+    accesiones_CT = sum(grupo == "CT" & abundancia > 0),
+    frecuencia_CA_pct = 100 * accesiones_CA / sum(grupo == "CA"),
+    frecuencia_CT_pct = 100 * accesiones_CT / sum(grupo == "CT"),
+    frecuencia_global_pct = 100 * (accesiones_CA + accesiones_CT) / n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(total_esporas))
+
+resumen_compartidos <- inventario_taxones %>%
+  mutate(patron = case_when(
+    accesiones_CA > 0 & accesiones_CT > 0 ~ "Compartidos",
+    accesiones_CA > 0 ~ "Solo CA",
+    TRUE ~ "Solo CT"
+  )) %>%
+  count(patron)
+
+inventario_generos <- datos_taxones %>%
+  group_by(genero) %>%
+  summarise(esporas = sum(cantidad), taxones = n_distinct(taxon), .groups = "drop") %>%
+  arrange(desc(esporas))
+
+print(resumen_compartidos)
+print(inventario_generos)
+```
+
+## Figura T7 / S4. Abundancia relativa por género
+
+```{r}
+#| label: fig-composicion-generos
+#| fig-cap: "Abundancia relativa media de los géneros de HMA en las accesiones CA y CT. Cada media se calculó a partir de las proporciones por accesión."
+#| fig-width: 8
+#| fig-height: 5.5
+abundancia_generos <- datos_taxones %>%
+  group_by(accesion, grupo, genero) %>%
+  summarise(abundancia = sum(cantidad), .groups = "drop") %>%
+  group_by(accesion, grupo) %>%
+  complete(genero = unique(datos_taxones$genero), fill = list(abundancia = 0)) %>%
+  mutate(proporcion_pct = 100 * abundancia / sum(abundancia)) %>%
+  ungroup()
+
+composicion_generos <- abundancia_generos %>%
+  group_by(grupo, genero) %>%
+  summarise(media_pct = mean(proporcion_pct), de_pct = sd(proporcion_pct), .groups = "drop")
+
+generos_orden <- inventario_generos$genero
+composicion_generos <- composicion_generos %>%
+  mutate(genero = factor(genero, levels = rev(generos_orden)))
+
+segmentos_generos <- composicion_generos %>%
+  select(grupo, genero, media_pct) %>%
+  pivot_wider(names_from = grupo, values_from = media_pct)
+
+fig_t7 <- ggplot(composicion_generos, aes(x = media_pct, y = genero, colour = grupo)) +
+  geom_segment(
+    data = segmentos_generos,
+    aes(x = CA, xend = CT, y = genero, yend = genero),
+    inherit.aes = FALSE, colour = "grey75", linewidth = 0.75
+  ) +
+  geom_point(size = 2.8) +
+  scale_colour_manual(values = colores_grupo) +
+  scale_y_discrete(labels = function(x) parse(text = paste0("italic(", x, ")"))) +
+  scale_x_continuous(expand = expansion(mult = c(0.02, 0.10))) +
+  labs(x = "Abundancia relativa media (%)", y = NULL, colour = "Grupo") +
+  tema_publicacion()
+fig_t7
+guardar_figura(fig_t7, "tesis", "T07_Composicion_Generos", 18, 12.5)
+guardar_figura(fig_t7, "suplementarias", "S04_Composicion_Generos", 17, 12)
+```
+
+## Bray-Curtis y pruebas multivariadas
+
+Se calcula Bray-Curtis sobre proporciones por accesión. PERMANOVA evalúa diferencias en composición asociadas al grupo y PERMDISP comprueba diferencias en dispersión. Se utilizan 9999 permutaciones, con semilla reproducible y corrección por tamaño muestral en PERMDISP. Las permutaciones libres solo son válidas si las accesiones pueden considerarse intercambiables bajo la hipótesis nula; si existen bloques dependientes, se deberá restringir el diseño.
+
+```{r}
+stopifnot(identical(rownames(matriz_taxon), metadata$accesion))
+matriz_rel <- vegan::decostand(matriz_taxon, method = "total")
+dist_bray <- vegan::vegdist(matriz_rel, method = "bray")
+
+set.seed(123)
+permanova <- vegan::adonis2(dist_bray ~ grupo, data = metadata,
+                            permutations = 9999)
+
+dispersion_beta <- vegan::betadisper(
+  dist_bray, group = factor(metadata$grupo), bias.adjust = TRUE
+)
+set.seed(123)
+permdisp <- vegan::permutest(dispersion_beta, permutations = 9999)
+
+# SIMPER es exploratorio; no demuestra que un taxón sea un indicador significativo.
+set.seed(123)
+resultado_simper <- vegan::simper(
+  matriz_rel, group = factor(metadata$grupo, levels = c("CA", "CT")),
+  permutations = 999
+)
+
+tabla_simper <- as.data.frame(summary(resultado_simper)[[1]])
+tabla_simper$taxon <- rownames(tabla_simper)
+tabla_simper <- as_tibble(tabla_simper) %>%
+  select(taxon, any_of(c("average", "sd", "ratio", "ava", "avb", "cumsum", "p")))
+
+limite_70 <- which(tabla_simper$cumsum >= 0.70)[1]
+if (is.na(limite_70)) limite_70 <- nrow(tabla_simper)
+tabla_simper_70 <- tabla_simper[seq_len(limite_70), , drop = FALSE]
+
+print(permanova)
+print(permdisp)
+print(tabla_simper_70)
+```
+
+```{r}
+#| label: fig-diagnostico-permdisp
+#| fig-cap: "Dispersión multivariada de las accesiones respecto a su centroide espacial (distancia Bray-Curtis)."
+#| fig-width: 7
+#| fig-height: 4.5
+boxplot(dispersion_beta, col = colores_grupo,
+        xlab = "Grupo", ylab = "Distancia al centroide espacial")
+```
+
+## Figura T8 / A3. Ordenación PCoA
+
+```{r}
+#| label: fig-pcoa
+#| fig-cap: "PCoA de Bray-Curtis sobre abundancias relativas por accesión, con corrección de Lingoes. Los puntos representan accesiones CA y CT."
+#| fig-width: 6.5
+#| fig-height: 6
+pcoa <- vegan::wcmdscale(dist_bray, k = 2, eig = TRUE, add = "lingoes")
+varianza_pcoa <- 100 * pcoa$eig[1:2] / sum(pcoa$eig[pcoa$eig > 0])
+
+pcoa_df <- tibble(
+  accesion = rownames(pcoa$points),
+  PCoA1 = pcoa$points[, 1],
+  PCoA2 = pcoa$points[, 2]
+) %>%
+  left_join(metadata, by = "accesion")
+
+fig_t8 <- ggplot(pcoa_df, aes(PCoA1, PCoA2, colour = grupo, shape = grupo)) +
+  geom_point(size = 2.2, alpha = 0.9) +
+  scale_colour_manual(values = colores_grupo) +
+  scale_shape_manual(values = c(CA = 16, CT = 17)) +
+  scale_x_continuous(expand = expansion(mult = 0.06)) +
+  scale_y_continuous(expand = expansion(mult = 0.06)) +
+  coord_equal() +
+  labs(x = paste0("PCoA 1 (", round(varianza_pcoa[1], 1), " %)"),
+       y = paste0("PCoA 2 (", round(varianza_pcoa[2], 1), " %)"),
+       colour = "Grupo", shape = "Grupo") +
+  tema_publicacion() +
+  theme(legend.position = "top", plot.margin = margin(14, 14, 14, 14))
+fig_t8
+guardar_figura(fig_t8, "tesis", "T08_PCoA_Bray_Curtis", 13.5, 12.5)
+guardar_figura(fig_t8, "articulo", "A03_PCoA_Bray_Curtis", 13, 12.2)
+```
+
+## Figura T9 / A4. Heatmaps de abundancia relativa
+
+```{r}
+#| label: fig-heatmap
+#| fig-cap: "Heatmap de abundancia relativa de todos los taxones morfológicos registrados. Las accesiones se agrupan mediante Bray-Curtis y enlace promedio."
+#| fig-width: 10
+#| fig-height: 11
+orden_accesiones <- hclust(dist_bray, method = "average")
+
+etiqueta_cientifica <- function(nombre) {
+  elementos <- strsplit(nombre, " ")[[1]]
+  if (length(elementos) > 1 && grepl("^sp\\.?", elementos[2], ignore.case = TRUE)) {
+    bquote(italic(.(elementos[1])) ~ .(paste(elementos[-1], collapse = " ")))
+  } else {
+    bquote(italic(.(nombre)))
+  }
+}
+
+anotacion_heatmap <- data.frame(Grupo = factor(metadata$grupo, levels = c("CA", "CT")))
+rownames(anotacion_heatmap) <- metadata$accesion
+
+max_abundancia_rel <- max(matriz_rel)
+escala_heatmap <- seq(0, max_abundancia_rel, length.out = 101)
+marcas_heatmap <- seq(0, max_abundancia_rel, length.out = 5)
+paleta_heatmap <- colorRampPalette(c("white", "#FDB863", "#B2182B"))(100)
+
+construir_heatmap <- function(taxones, tamano_letra = 8,
+                              ancho_celda_pt = 13, alto_celda_pt = 16) {
+  matriz <- t(matriz_rel[, taxones, drop = FALSE])
+  agrupacion_taxones <- hclust(vegan::vegdist(matriz, method = "bray"),
+                               method = "average")
+  pheatmap::pheatmap(
+    matriz,
+    cluster_rows = agrupacion_taxones,
+    cluster_cols = orden_accesiones,
+    labels_row = as.expression(lapply(rownames(matriz), etiqueta_cientifica)),
+    annotation_col = anotacion_heatmap,
+    annotation_colors = list(Grupo = colores_grupo),
+    color = paleta_heatmap,
+    breaks = escala_heatmap,
+    legend_breaks = marcas_heatmap,
+    legend_labels = paste0(round(marcas_heatmap * 100), " %"),
+    scale = "none", border_color = NA,
+    fontsize_row = tamano_letra, fontsize_col = 7,
+    cellwidth = ancho_celda_pt, cellheight = alto_celda_pt,
+    angle_col = 45, silent = TRUE
+  )
+}
+
+fig_t9 <- construir_heatmap(
+  colnames(matriz_taxon), tamano_letra = 7.5,
+  ancho_celda_pt = 14, alto_celda_pt = 15
+)$gtable
+fig_t9 <- gtable::gtable_add_padding(fig_t9, grid::unit(rep(14, 4), "pt"))
+
+grid::grid.newpage()
+grid::grid.draw(fig_t9)
+guardar_figura(fig_t9, "tesis", "T09_Heatmap_45_Taxones", 30, 31)
+
+n_top <- min(20, ncol(matriz_taxon))
+taxones_top <- names(sort(colSums(matriz_taxon), decreasing = TRUE))[seq_len(n_top)]
+fig_a4 <- construir_heatmap(
+  taxones_top, tamano_letra = 8.5,
+  ancho_celda_pt = 13, alto_celda_pt = 17
+)$gtable
+fig_a4 <- gtable::gtable_add_padding(fig_a4, grid::unit(rep(14, 4), "pt"))
+
+guardar_figura(fig_a4, "articulo", "A04_Heatmap_20_Taxones", 29, 19)
+```
+
+# Figuras suplementarias del artículo
+
+## Figura S1. Densidad y colonización por accesión
+
+```{r}
+#| label: fig-suplementaria-accesiones
+#| fig-cap: "Valores individuales de densidad de esporas (a) y colonización micorrízica (b) en las 35 accesiones."
+#| fig-width: 11
+#| fig-height: 10
+orden_nombres <- rev(sort(unique(datos$Accesión)))
+
+crear_panel_s1 <- function(variable, etiqueta_x) {
+  datos_cor %>%
+    mutate(Accesión = factor(Accesión, levels = orden_nombres)) %>%
+    ggplot(aes(x = .data[[variable]], y = Accesión, colour = Grupo)) +
+    geom_segment(aes(x = 0, xend = .data[[variable]], yend = Accesión),
+                 linewidth = 0.3, alpha = 0.45) +
+    geom_point(size = 1.5) +
+    scale_colour_manual(values = colores_grupo) +
+    scale_x_continuous(expand = expansion(mult = c(0.01, 0.09))) +
+    labs(x = etiqueta_x, y = "Accesión", colour = "Grupo") +
+    tema_publicacion() +
+    theme(axis.text.y = element_text(size = 7), legend.position = "top")
+}
+
+fig_s1a <- crear_panel_s1("Densidad_esporas_g", "Densidad (esporas/g)")
+fig_s1b <- crear_panel_s1("Colonizacion", "Colonización (%)")
+
+graficos_s1 <- cowplot::align_plots(
+  fig_s1a, fig_s1b,
+  align = "hv", axis = "tblr"
+)
+
+panel_s1a <- crear_panel(graficos_s1[[1]], "(a)")
+panel_s1b <- crear_panel(graficos_s1[[2]], "(b)")
+
+fig_s1 <- cowplot::plot_grid(
+  panel_s1a, panel_s1b,
+  ncol = 2, rel_widths = c(1, 1)
+) %>% margen_compuesto(lateral = 0.02, vertical = 0.025)
+
+fig_s1
+
+guardar_figura(fig_s1, "suplementarias", "S01_Indicadores_por_Accesion", 27, 23)
+guardar_figura(fig_s1a, "paneles", "S01a_Densidad_por_Accesion", 15, 22)
+guardar_figura(fig_s1b, "paneles", "S01b_Colonizacion_por_Accesion", 15, 22)
+```
+
+# Tablas taxonómicas y estadísticas
+
+## Tabla T1 / Tabla S1. Inventario taxonómico
+
+```{r}
+#| label: tbl-inventario
+#| tbl-cap: "Inventario taxonómico de HMA registrado mediante esporas, con presencia por grupo y frecuencia de ocurrencia."
+inventario_taxones
+exportar_tabla(inventario_taxones, "tablas_tesis", "T01_Inventario_Taxones")
+exportar_tabla(inventario_taxones, "tablas_suplementarias", "Tabla_S01_Inventario_Taxones")
+```
+
+## Tabla T2 / Tabla S2. Contribuciones SIMPER
+
+```{r}
+#| label: tbl-simper
+#| tbl-cap: "Taxones con mayor contribución a la disimilitud CA–CT según SIMPER, hasta alcanzar una contribución acumulada del 70 %."
+tabla_simper_70
+exportar_tabla(tabla_simper_70, "tablas_tesis", "T02_SIMPER_70porciento")
+exportar_tabla(tabla_simper, "tablas_suplementarias", "Tabla_S02_SIMPER_Completo")
+```
+
+## Archivos de análisis
+
+```{r}
+exportar_tabla(accesiones_solo_colonizacion, "analisis", "Accesiones_Solo_Colonizacion")
+exportar_tabla(resumen_densidad, "analisis", "Resumen_Densidad")
+exportar_tabla(resumen_colonizacion, "analisis", "Resumen_Colonizacion")
+exportar_tabla(normalidad_indicadores, "analisis", "Normalidad_Indicadores")
+exportar_tabla(normalidad_residuos, "analisis", "Normalidad_Residuos")
+exportar_tabla(dispersion_univariada, "analisis", "Fligner_Dispersion")
+exportar_tabla(comparacion_sensibilidad, "analisis", "Sensibilidad_Indicadores")
+exportar_tabla(normalidad_alfa, "analisis", "Normalidad_Diversidad_Alfa")
+exportar_tabla(cor_riqueza, "analisis", "Correlacion_Riqueza_Esporas")
+exportar_tabla(sensibilidad_ca, "analisis", "Sensibilidad_Riqueza_CA")
+exportar_tabla(resumen_raref, "analisis", "Rarefaccion_Resumen")
+exportar_tabla(diversidad_alfa, "analisis", "Diversidad_por_Accesion")
+exportar_tabla(resumen_alfa, "analisis", "Resumen_Diversidad")
+exportar_tabla(pruebas_alfa, "analisis", "Pruebas_Diversidad_Holm")
+exportar_tabla(resultados_cor, "analisis", "Correlacion_Spearman")
+exportar_tabla(acumulacion, "analisis", "Acumulacion_Taxones")
+exportar_tabla(composicion_generos, "analisis", "Composicion_Generos")
+exportar_tabla(resumen_compartidos, "analisis", "Taxones_Compartidos")
+exportar_tabla(pcoa_df, "analisis", "Coordenadas_PCoA")
+
+pruebas_beta <- tibble(
+  prueba = c("PERMANOVA", "PERMDISP"),
+  estadistico_F = c(permanova$F[1], permdisp$tab$F[1]),
+  p = c(permanova$`Pr(>F)`[1], permdisp$tab$`Pr(>F)`[1]),
+  R2 = c(permanova$R2[1], NA_real_)
+)
+exportar_tabla(pruebas_beta, "analisis", "Pruebas_Beta")
+pruebas_beta
+```
+
+# Análisis pendientes
+
+Fotografías de esporas y micelio, filogenia SSU–ITS–LSU e integración morfológica-molecular: se incorporarán con los archivos correspondientes.
+
+**Verificaciones confirmadas:** masa de suelo de 6 g, CT01 con 246 esporas, lecturas de CT10, CT02, CT13 y CA14, y conteos de CA04 y CA02. Se conservaron los valores corroborados. Para el manuscrito queda documentar los criterios de exclusión de las tres accesiones sin datos integrados y explicitar la independencia del muestreo. La inferencia causal por hospedero no está sustentada solo por las comparaciones CA–CT.
+
+## Sesión de R
+
+```{r}
+#| results: hide
+sessionInfo()
+```

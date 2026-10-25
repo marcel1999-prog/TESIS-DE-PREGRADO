@@ -1,0 +1,5 @@
+variable,prueba,p
+Densidad,Mann-Whitney,0.21273155604325986
+Densidad,Welch sobre log1p,0.3304663601096658
+Colonización,Welch,0.7759250299803394
+Colonización,Mann-Whitney,0.8913728153940244
