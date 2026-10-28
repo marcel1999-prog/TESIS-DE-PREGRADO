@@ -29,6 +29,7 @@ library(vegan)
 library(cowplot)
 library(pheatmap)
 library(grid)
+library(writexl)
 
 archivos <- list(
   densidad = "data/densidad de esporas procesar.xlsx",
@@ -1105,3 +1106,4 @@ Fotografías de esporas y micelio, filogenia SSU–ITS–LSU e integración morf
 #| results: hide
 sessionInfo()
 ```
+
