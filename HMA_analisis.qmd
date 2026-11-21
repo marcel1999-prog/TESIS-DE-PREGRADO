@@ -978,7 +978,7 @@ fig_t9 <- gtable::gtable_add_padding(fig_t9, grid::unit(rep(14, 4), "pt"))
 
 grid::grid.newpage()
 grid::grid.draw(fig_t9)
-guardar_figura(fig_t9, "tesis", "T09_Heatmap_45_Taxones", 30, 31)
+guardar_figura(fig_t9, "tesis", "T09_Heatmap_Taxones", 30, 31)
 
 n_top <- min(20, ncol(matriz_taxon))
 taxones_top <- names(sort(colSums(matriz_taxon), decreasing = TRUE))[seq_len(n_top)]
